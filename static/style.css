@@ -1,0 +1,291 @@
+/* style.css — дополнительные стили Firmware Manager */
+
+:root {
+    --fw-accent: #2dd4bf;
+    --fw-accent-soft: rgba(45, 212, 191, 0.15);
+    --fw-danger: #ef4444;
+    --fw-muted: #94a3b8;
+    --fw-card: #1e293b;
+}
+
+html, body {
+    background: #0f172a;
+}
+
+body {
+    font-size: 0.92rem;
+}
+
+.navbar-brand {
+    font-size: 1.1rem;
+    letter-spacing: 0.2px;
+}
+
+.navbar .nav-link {
+    padding: 0.45rem 0.8rem;
+    border-radius: 0.4rem;
+    margin: 0 0.1rem;
+    transition: background 0.15s ease;
+}
+
+.navbar .nav-link:hover,
+.navbar .nav-link.active {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.navbar .nav-link.btn-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.card {
+    background: var(--fw-card);
+    border: 1px solid #334155;
+    border-radius: 0.75rem;
+}
+
+.card-header {
+    background: rgba(15, 23, 42, 0.6);
+    border-bottom: 1px solid #334155;
+}
+
+.table {
+    --bs-table-bg: transparent;
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.025);
+    --bs-table-hover-bg: rgba(45, 212, 191, 0.05);
+}
+
+.table th {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fw-muted);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    background: #0f172a;
+    z-index: 2;
+}
+
+.table td {
+    vertical-align: middle;
+    font-size: 0.85rem;
+}
+
+.filename-cell {
+    font-family: "Consolas", "Cascadia Mono", monospace;
+    font-size: 0.82rem;
+    color: #e2e8f0;
+    word-break: break-all;
+}
+
+.badge-tag {
+    font-size: 0.68rem;
+    font-weight: 500;
+    padding: 0.18rem 0.45rem;
+    border-radius: 0.35rem;
+}
+
+.badge-brand {
+    background: var(--fw-accent-soft);
+    color: var(--fw-accent);
+    border: 1px solid rgba(45, 212, 191, 0.3);
+}
+
+.badge-tune {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-gbo {
+    background: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-stock {
+    background: rgba(148, 163, 184, 0.15);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.badge-imm {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.search-hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border: 1px solid #334155;
+    border-radius: 1rem;
+    padding: 1.25rem 1.5rem;
+}
+
+.search-hero .form-control {
+    background: #0f172a;
+    border-color: #475569;
+    font-size: 1.05rem;
+    padding: 0.65rem 1rem;
+}
+
+.search-hero .form-control:focus {
+    border-color: var(--fw-accent);
+    box-shadow: 0 0 0 0.2rem rgba(45, 212, 191, 0.2);
+}
+
+.stat-card {
+    padding: 1rem;
+    border-radius: 0.75rem;
+    background: #0f172a;
+    border: 1px solid #334155;
+    text-align: center;
+}
+
+.stat-card .value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.stat-card .label {
+    font-size: 0.75rem;
+    color: var(--fw-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.25rem;
+}
+
+.progress {
+    height: 0.6rem;
+    background: #0f172a;
+}
+
+.toast-container .toast {
+    min-width: 260px;
+}
+
+.fw-modal-body .row + .row {
+    margin-top: 0.5rem;
+}
+
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--fw-muted);
+}
+
+.empty-state .icon {
+    font-size: 3rem;
+    opacity: 0.5;
+    margin-bottom: 0.5rem;
+}
+
+.unknown-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.unknown-card .meta {
+    font-size: 0.8rem;
+    color: var(--fw-muted);
+}
+
+.unknown-card .meta span {
+    margin-right: 0.75rem;
+}
+
+.form-label-sm {
+    font-size: 0.78rem;
+    margin-bottom: 0.2rem;
+    color: var(--fw-muted);
+}
+
+.action-btn {
+    padding: 0.2rem 0.45rem;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+    .table th, .table td {
+        font-size: 0.75rem;
+    }
+    .search-hero {
+        padding: 1rem;
+    }
+}
+
+/* Скрываем стрелки в number inputs */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Подсветка выбранной строки */
+.table-hover tbody tr:hover {
+    cursor: default;
+}
+
+/* Скролл внутри таблиц */
+.table-responsive {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* Автодополнение поиска и фильтров */
+.suggest-menu {
+    position: fixed;
+    z-index: 3000;
+    padding: 0.25rem;
+    overflow-y: auto;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 0.5rem;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+.suggest-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    padding: 0.42rem 0.55rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: #e2e8f0;
+    text-align: left;
+    font-size: 0.86rem;
+}
+
+.suggest-item:hover,
+.suggest-item.active {
+    background: rgba(45, 212, 191, 0.16);
+}
+
+.suggest-cat {
+    flex: 0 0 4.7rem;
+    color: var(--fw-accent);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.suggest-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggest-count {
+    flex: 0 0 auto;
+    color: var(--fw-muted);
+    font-size: 0.72rem;
+}

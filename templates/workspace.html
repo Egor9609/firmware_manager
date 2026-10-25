@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Рабочая папка — Firmware Manager{% endblock %}
+{% block active %}workspace{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0">Рабочая папка</h4>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="changePathBtn">✏ Изменить путь</button>
+        <button class="btn btn-outline-primary btn-sm" type="button" id="openFolderBtn">📁 Открыть папку</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="refreshWorkspaceBtn">⟳ Обновить</button>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="small text-secondary">Текущий путь:</div>
+        <div class="filename-cell" id="workspacePath">—</div>
+        <div class="form-text text-secondary mt-1">
+            Оригинальные прошивки никогда не изменяются. В эту папку копируются
+            только рабочие копии вместе с описаниями.
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <strong>Файлы</strong>
+        <span class="text-secondary small" id="workspaceCount">0</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Имя файла</th>
+                    <th>Тип</th>
+                    <th>Размер</th>
+                    <th>Дата изменения</th>
+                    <th class="text-end">Действия</th>
+                </tr>
+            </thead>
+            <tbody id="workspaceBody">
+                <tr><td colspan="5" class="text-center text-secondary py-4">Загрузка…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Модалка смены пути -->
+<div class="modal fade" id="pathModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Изменить рабочую папку</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label form-label-sm">Новый путь</label>
+                <input type="text" id="newPathInput" class="form-control"
+                       placeholder="C:\FirmwareWorkspace">
+                <div class="form-text text-secondary">
+                    Папка будет создана, если её ещё нет.
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary btn-sm" id="savePathBtn">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const pathModal = new bootstrap.Modal(document.getElementById('pathModal'));
+
+function loadWorkspace() {
+    api('/api/workspace_files').then(function (data) {
+        document.getElementById('workspacePath').textContent = data.workspace || '—';
+        document.getElementById('workspaceCount').textContent = (data.count || 0) + ' файлов';
+        const tbody = document.getElementById('workspaceBody');
+        tbody.innerHTML = '';
+        const files = data.files || [];
+        if (files.length === 0) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="5"><div class="empty-state"><div class="icon">📁</div><div>Рабочая папка пуста. Скопируйте прошивку из поиска.</div></div></td>';
+            tbody.appendChild(tr);
+            return;
+        }
+        files.forEach(function (file) {
+            const tr = document.createElement('tr');
+            const typeBadge = file.type === 'firmware'
+                ? '<span class="badge text-bg-success">Прошивка</span>'
+                : file.type === 'description'
+                    ? '<span class="badge text-bg-info">Описание</span>'
+                    : '<span class="badge text-bg-secondary">Другое</span>';
+            tr.innerHTML =
+                '<td class="filename-cell">' + esc(file.name) + '</td>' +
+                '<td>' + typeBadge + '</td>' +
+                '<td>' + fmtSize(file.size) + '</td>' +
+                '<td>' + fmtDate(file.mtime) + '</td>' +
+                '<td class="text-end">' +
+                    '<button class="btn btn-outline-danger btn-sm action-btn" data-name="' + esc(file.name) + '">🗑 Удалить</button>' +
+                '</td>';
+            tr.querySelector('button').addEventListener('click', function () {
+                const name = this.getAttribute('data-name');
+                if (!confirm('Удалить файл «' + name + '» из рабочей папки?')) return;
+                api('/api/delete_workspace_file', { method: 'POST', body: { name: name } })
+                    .then(function () { toast('Удалено: ' + name, 'success'); loadWorkspace(); })
+                    .catch(function (err) { toast(err.message, 'error'); });
+            });
+            tbody.appendChild(tr);
+        });
+    }).catch(function (err) {
+        toast(err.message, 'error');
+    });
+}
+
+document.getElementById('refreshWorkspaceBtn').addEventListener('click', loadWorkspace);
+
+document.getElementById('openFolderBtn').addEventListener('click', function () {
+    api('/api/open_location?path=' + encodeURIComponent(document.getElementById('workspacePath').textContent))
+        .catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.getElementById('changePathBtn').addEventListener('click', function () {
+    api('/api/workspace').then(function (data) {
+        document.getElementById('newPathInput').value = data.workspace || '';
+        pathModal.show();
+    });
+});
+
+document.getElementById('savePathBtn').addEventListener('click', function () {
+    const path = document.getElementById('newPathInput').value.trim();
+    api('/api/workspace', { method: 'POST', body: { path: path } })
+        .then(function (data) {
+            toast('Путь обновлён', 'success');
+            pathModal.hide();
+            loadWorkspace();
+        })
+        .catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.addEventListener('DOMContentLoaded', loadWorkspace);
+</script>
+{% endblock %}

@@ -1,0 +1,1513 @@
+{% extends "base.html" %}
+
+{% block title %}Поиск — Firmware Manager{% endblock %}
+{% block active %}index{% endblock %}
+
+{% block content %}
+<div class="search-hero mb-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-lg-12">
+            <div class="input-group">
+                <span class="input-group-text bg-dark border-secondary">🔍</span>
+                <input type="text" id="searchInput" class="form-control"
+                       data-suggest="all"
+                       placeholder="Поиск: начните вводить марку, модель, ЭБУ, автора…"
+                       autocomplete="off" autofocus>
+                <button class="btn btn-outline-secondary" type="button" id="clearSearchBtn">✕</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <strong>Фильтры</strong>
+        <div class="d-flex align-items-center gap-1">
+            <select id="filterSetsSelect" class="form-select form-select-sm" style="width:auto"
+                    title="Сохранённые подборки">
+                <option value="">Подборки…</option>
+            </select>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="saveFilterSetBtn"
+                    title="Сохранить текущие фильтры как подборку">💾</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="deleteFilterSetBtn"
+                    title="Удалить выбранную подборку">🗑</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="resetFiltersBtn">Сбросить</button>
+        </div>
+    </div>
+    <div class="card-body py-2">
+        <div class="row g-2">
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Марка</label>
+                <input type="text" id="brandFilter" class="form-control form-control-sm"
+                       data-suggest="brand" placeholder="Все" autocomplete="off">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Модель</label>
+                <input type="text" id="modelFilter" class="form-control form-control-sm"
+                       data-suggest="model" placeholder="Все" autocomplete="off">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Двигатель</label>
+                <input type="text" id="engineFilter" class="form-control form-control-sm"
+                       data-suggest="engine" placeholder="Все" autocomplete="off">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Архив</label>
+                <input type="text" id="archiveFilter" class="form-control form-control-sm"
+                       data-suggest="archive" placeholder="Все" autocomplete="off">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">ЭБУ</label>
+                <input type="text" id="ecuFilter" class="form-control form-control-sm"
+                       data-suggest="ecu" placeholder="Все" autocomplete="off">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Автор</label>
+                <input type="text" id="authorFilter" class="form-control form-control-sm"
+                       data-suggest="author" placeholder="Все" autocomplete="off">
+            </div>
+            <div class="col-12 d-flex flex-wrap gap-3 small mt-1">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="gboFilter">
+                        <label class="form-check-label" for="gboFilter">ГБО</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="tuneFilter">
+                        <label class="form-check-label" for="tuneFilter">Тюнинг</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="stockFilter">
+                        <label class="form-check-label" for="stockFilter">Заводские</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="unknownOnlyFilter">
+                        <label class="form-check-label" for="unknownOnlyFilter">Неизвестные</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="favOnlyFilter">
+                        <label class="form-check-label" for="favOnlyFilter">⭐ Избранное</label>
+                    </div>
+            </div>
+            <div class="form-text text-secondary mt-1">
+                Начните вводить марку, модель, ЭБУ или автора — появятся подсказки.
+                Пустое поле означает «без фильтра».
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="suggestMenu" class="suggest-menu" hidden></div>
+
+<div class="card mb-2" id="selectionBar" hidden>
+    <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+        <span>Выбрано: <span class="badge text-bg-info" id="selectionCount">0</span></span>
+        <span id="selectionCrcInfo" class="small text-secondary"></span>
+        <button class="btn btn-success btn-sm" type="button" id="batchCopyBtn">
+            ⬇ Скопировать в рабочую папку
+        </button>
+        <button class="btn btn-outline-info btn-sm" type="button" id="batchCrcBtn">
+            Σ Проверить CRC32
+        </button>
+        <button class="btn btn-outline-success btn-sm" type="button" id="batchCsvBtn">
+            ⬇ CSV выделенного
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="batchClearBtn">
+            Снять выбор
+        </button>
+        <span class="small text-secondary">выделение сохраняется при смене запроса</span>
+    </div>
+</div>
+
+<div class="modal fade" id="crcModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Контрольные суммы</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="crcBody"></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="editTitle">Редактировать прошивку</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Марка</label>
+                        <input id="editBrand" class="form-control form-control-sm" list="brandOptionsList">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Модель</label>
+                        <input id="editModel" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Двигатель</label>
+                        <input id="editEngine" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">ЭБУ</label>
+                        <input id="editEcu" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">ID блока</label>
+                        <input id="editEcuId" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Автор</label>
+                        <input id="editAuthor" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Евро</label>
+                        <input id="editEco" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Версия</label>
+                        <input id="editVersion" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label form-label-sm">Год</label>
+                        <input id="editYear" type="number" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label form-label-sm">Теги (через запятую)</label>
+                        <input id="editTags" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-3 mt-2 small">
+                    <div class="form-check"><input class="form-check-input" type="checkbox" id="editGbo"><label class="form-check-label" for="editGbo">ГБО</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" id="editTune"><label class="form-check-label" for="editTune">Тюнинг</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" id="editStock"><label class="form-check-label" for="editStock">Заводская</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" id="editImmo"><label class="form-check-label" for="editImmo">Иммо off</label></div>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-dismiss="modal">Отмена</button>
+                <button class="btn btn-success btn-sm" type="button" id="editSaveBtn">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<datalist id="brandOptionsList"></datalist>
+
+<div class="card">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <strong>Результаты</strong>
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-secondary mb-0" for="sortSelect">Сортировка</label>
+            <select id="sortSelect" class="form-select form-select-sm" style="width:auto">
+                <option value="relevance">По релевантности</option>
+                <option value="brand">По марке</option>
+                <option value="filename">По имени файла</option>
+                <option value="size">По размеру</option>
+                <option value="newest">По времени индексации</option>
+                <option value="year">По году</option>
+            </select>
+            <button class="btn btn-outline-success btn-sm" type="button" id="exportCsvBtn"
+                    title="Выгрузить текущие результаты в CSV">⬇ CSV</button>
+            <span class="text-secondary small" id="resultsInfo">Загрузка…</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th style="width:32px"><input class="form-check-input" type="checkbox" id="selectAllCheck" title="Выбрать все на странице"></th>
+                    <th>Марка</th>
+                    <th>Модель</th>
+                    <th>ЭБУ / ID</th>
+                    <th>Автор</th>
+                    <th>Евро</th>
+                    <th>Теги</th>
+                    <th>Файл</th>
+                    <th>Размер</th>
+                    <th>CRC32</th>
+                    <th>Описание</th>
+                    <th class="text-end">Действия</th>
+                </tr>
+            </thead>
+            <tbody id="resultsBody">
+                <tr><td colspan="12" class="text-center text-secondary py-4">Загрузка…</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer py-2 d-flex justify-content-between align-items-center">
+        <div class="small text-secondary" id="paginationInfo"></div>
+        <nav>
+            <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+        </nav>
+    </div>
+</div>
+
+<!-- Модалка подробностей -->
+<div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="detailTitle">Прошивка</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detailBody"></div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="detailCopyBtn">⬇ Копировать в workspace</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="detailPathBtn">📋 Скопировать путь</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="detailOpenBtn">📁 Открыть папку</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const state = { page: 1, perPage: 50, sort: 'relevance', filters: {}, total: 0, items: [] };
+// Выделение живёт отдельно от таблицы: можно набрать файлы из разных запросов.
+const selection = new Map();
+// CRC, уже посчитанные в текущей сессии (чтобы не запрашивать повторно).
+const crcCache = new Map();
+const crcInFlight = new Map();
+let currentDetail = null;
+const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+
+function buildQuery() {
+    const p = new URLSearchParams();
+    const q = document.getElementById('searchInput').value.trim();
+    if (q) p.set('q', q);
+    const brand = document.getElementById('brandFilter').value;
+    if (brand) p.set('brand', brand);
+    const model = document.getElementById('modelFilter').value.trim();
+    if (model) p.set('model', model);
+    const engine = document.getElementById('engineFilter').value;
+    if (engine) p.set('engine', engine);
+    const archive = document.getElementById('archiveFilter').value;
+    if (archive) p.set('archive', archive);
+    const ecu = document.getElementById('ecuFilter').value;
+    if (ecu) p.set('ecu', ecu);
+    const author = document.getElementById('authorFilter').value;
+    if (author) p.set('author', author);
+    if (document.getElementById('gboFilter').checked) p.set('gbo', '1');
+    if (document.getElementById('tuneFilter').checked) p.set('tune', '1');
+    if (document.getElementById('stockFilter').checked) p.set('stock', '1');
+    if (document.getElementById('unknownOnlyFilter').checked) p.set('status', 'unknown');
+    if (document.getElementById('favOnlyFilter').checked) p.set('favorites', '1');
+    p.set('page', state.page);
+    p.set('per_page', state.perPage);
+    p.set('sort', state.sort);
+    return p.toString();
+}
+
+function currentFilters() {
+    return {
+        q: document.getElementById('searchInput').value.trim(),
+        brand: document.getElementById('brandFilter').value,
+        model: document.getElementById('modelFilter').value,
+        engine: document.getElementById('engineFilter').value,
+        archive: document.getElementById('archiveFilter').value,
+        ecu: document.getElementById('ecuFilter').value,
+        author: document.getElementById('authorFilter').value,
+        gbo: document.getElementById('gboFilter').checked,
+        tune: document.getElementById('tuneFilter').checked,
+        stock: document.getElementById('stockFilter').checked,
+        unknown: document.getElementById('unknownOnlyFilter').checked,
+        favorites: document.getElementById('favOnlyFilter').checked,
+        sort: state.sort,
+    };
+}
+
+function applyFilters(filters) {
+    filters = filters || {};
+    document.getElementById('searchInput').value = filters.q || '';
+    document.getElementById('brandFilter').value = filters.brand || '';
+    renderModelOptions();
+    document.getElementById('modelFilter').value = filters.model || '';
+    document.getElementById('engineFilter').value = filters.engine || '';
+    document.getElementById('archiveFilter').value = filters.archive || '';
+    document.getElementById('ecuFilter').value = filters.ecu || '';
+    document.getElementById('authorFilter').value = filters.author || '';
+    document.getElementById('gboFilter').checked = !!filters.gbo;
+    document.getElementById('tuneFilter').checked = !!filters.tune;
+    document.getElementById('stockFilter').checked = !!filters.stock;
+    document.getElementById('unknownOnlyFilter').checked = !!filters.unknown;
+    document.getElementById('favOnlyFilter').checked = !!filters.favorites;
+    if (filters.sort) {
+        state.sort = filters.sort;
+        document.getElementById('sortSelect').value = filters.sort;
+    }
+    state.page = 1;
+    loadResults();
+}
+
+function renderTags(item) {
+    let html = '';
+    if (item.is_tune) html += '<span class="badge badge-tune badge-tag me-1">Тюнинг</span>';
+    if (item.has_gbo) html += '<span class="badge badge-gbo badge-tag me-1">ГБО</span>';
+    if (item.is_stock) html += '<span class="badge badge-stock badge-tag me-1">Stock</span>';
+    if (item.imm_off) html += '<span class="badge badge-imm badge-tag me-1">Иммо off</span>';
+    if (item.version_tag) html += '<span class="badge text-bg-dark border border-secondary badge-tag me-1">' + esc(item.version_tag) + '</span>';
+    if (item.year) html += '<span class="badge text-bg-dark border border-secondary badge-tag me-1">' + esc(item.year) + '</span>';
+    if (item.extra_tags) {
+        item.extra_tags.split(',').forEach(function (tag) {
+            tag = tag.trim();
+            if (tag) html += '<span class="badge text-bg-dark border border-secondary badge-tag me-1">' + esc(tag) + '</span>';
+        });
+    }
+    if (!html) html = '<span class="text-secondary small">—</span>';
+    return html;
+}
+
+function renderRow(item) {
+    const tr = document.createElement('tr');
+    const archiveIcon = item.archive_path ? '📦 ' : '';
+    const dupBadge = item.dup_copies > 1
+        ? ' <span class="badge text-bg-warning" title="Ещё ' + (item.dup_copies - 1) +
+          ' файл(ов) с таким же именем и размером. Это могут быть разные прошивки — ' +
+          'откройте карточку и сверьте CRC32">= имя+размер ×' + item.dup_copies + '</span>'
+        : '';
+    const desc = item.description_file_path
+        ? '<span class="badge text-bg-success">Есть</span>'
+        : '<span class="text-secondary">—</span>';
+    const rowCrc = item.crc32 || crcCache.get(item.id);
+    tr.innerHTML =
+        '<td class="select-cell"><input class="form-check-input row-check" type="checkbox" data-id="' + item.id + '"' +
+            (selection.has(item.id) ? ' checked' : '') + '></td>' +
+        '<td><span class="badge badge-brand">' + esc(item.brand || '—') + '</span></td>' +
+        '<td>' + esc(item.model || '—') + '</td>' +
+        '<td><div>' + esc(item.ecu_name || '—') + '</div>' +
+            (item.ecu_id ? '<div class="text-secondary small">' + esc(item.ecu_id) + '</div>' : '') + '</td>' +
+        '<td>' + esc(item.author || '—') + '</td>' +
+        '<td>' + esc(item.eco_standard || '—') + '</td>' +
+        '<td>' + renderTags(item) + '</td>' +
+        '<td class="filename-cell" title="' + esc(item.file_path) + '">' + archiveIcon + esc(item.filename) + dupBadge +
+            (item.manual ? ' <span class="badge text-bg-info" title="Ручная правка: переиндексация не перезапишет">✎ правка</span>' : '') +
+            (item.in_workspace ? ' <span class="badge text-bg-success" title="Уже скопировано в рабочую папку">в папке</span>' : '') + '</td>' +
+        '<td class="text-nowrap">' + fmtSize(item.file_size) + '</td>' +
+        '<td class="text-nowrap small row-crc" data-id="' + item.id + '">' + (rowCrc
+            ? '<code class="text-warning">' + esc(rowCrc) + '</code>'
+            : '<span class="text-secondary" title="Контрольная сумма ещё не посчитана">—</span>') + '</td>' +
+        '<td>' + desc + '</td>' +
+        '<td class="text-end text-nowrap">' +
+                    '<button class="btn btn-link btn-sm action-btn text-secondary" data-action="edit" data-id="' + item.id + '" title="Редактировать поля">✎</button>' +
+            '<button class="btn btn-link btn-sm action-btn ' + (item.fav ? 'text-warning' : 'text-secondary') + '" data-action="fav" data-id="' + item.id + '" title="В избранное">' + (item.fav ? '★' : '☆') + '</button>' +
+            '<button class="btn btn-link btn-sm action-btn text-secondary" data-action="path" data-id="' + item.id + '" title="Скопировать путь">📋</button>' +
+            '<button class="btn btn-success btn-sm action-btn me-1" data-action="copy" data-id="' + item.id + '" title="Копировать в workspace">⬇</button>' +
+            '<button class="btn btn-outline-secondary btn-sm action-btn" data-action="open" data-id="' + item.id + '" title="Открыть папку">📁</button>' +
+            '<button class="btn btn-link btn-sm action-btn text-secondary" data-action="detail" data-id="' + item.id + '" title="Подробнее">ℹ</button>' +
+        '</td>';
+    // Клик по строке открывает детализацию, но клик по галке/кнопкам — нет.
+    tr.addEventListener('click', function (e) {
+        if (e.target.closest('.select-cell, button, input, select, label, a')) return;
+        openDetail(item);
+    });
+    const checkbox = tr.querySelector('.row-check');
+    if (checkbox) {
+        checkbox.addEventListener('click', function (e) { e.stopPropagation(); });
+    }
+    const selectCell = tr.querySelector('.select-cell');
+    if (selectCell) {
+        selectCell.addEventListener('click', function (e) { e.stopPropagation(); });
+    }
+    tr.querySelectorAll('button').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const action = btn.getAttribute('data-action');
+            const id = parseInt(btn.getAttribute('data-id'), 10);
+            if (action === 'copy') copyToWorkspace(id);
+            else if (action === 'open') openLocation(id);
+            else if (action === 'fav') toggleFavorite(id, !btn.classList.contains('text-warning'), btn);
+            else if (action === 'edit') openEdit(state.items.find(function (x) { return x.id === id; }));
+            else if (action === 'path') {
+                const row = state.items.find(function (x) { return x.id === id; });
+                if (row) copyText(row.file_path, 'Путь');
+            }
+            else if (action === 'detail') openDetail(state.items.find(function (x) { return x.id === id; }));
+        });
+    });
+    return tr;
+}
+
+function loadResults() {
+    const info = document.getElementById('resultsInfo');
+    info.textContent = 'Загрузка…';
+    api('/api/search?' + buildQuery()).then(function (data) {
+        state.items = data.items || [];
+        state.total = data.total || 0;
+        const tbody = document.getElementById('resultsBody');
+        tbody.innerHTML = '';
+        if (!state.items.length) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="12"><div class="empty-state"><div class="icon">📂</div><div>Ничего не найдено. Проверьте фильтры или запустите индексацию.</div></div></td>';
+            tbody.appendChild(tr);
+        } else {
+            state.items.forEach(function (item) {
+                tbody.appendChild(renderRow(item));
+            });
+        }
+        document.getElementById('paginationInfo').textContent =
+            'Всего: ' + state.total + ' · страница ' + data.page + ' из ' + (data.pages || 1);
+        renderPagination(data.page, data.pages || 1);
+        info.textContent = 'Найдено: ' + state.total;
+    }).catch(function (err) {
+        info.textContent = 'Ошибка: ' + err.message;
+        toast(err.message, 'error');
+    });
+}
+
+function renderPagination(current, total) {
+    const ul = document.getElementById('pagination');
+    ul.innerHTML = '';
+    if (total <= 1) return;
+    function addItem(label, page, disabled, active) {
+        const li = document.createElement('li');
+        li.className = 'page-item' + (disabled ? ' disabled' : '') + (active ? ' active' : '');
+        const a = document.createElement('a');
+        a.className = 'page-link';
+        a.href = '#';
+        a.textContent = label;
+        a.addEventListener('click', function (e) {
+            e.preventDefault();
+            if (disabled || active) return;
+            state.page = page;
+            loadResults();
+        });
+        li.appendChild(a);
+        ul.appendChild(li);
+    }
+    addItem('«', current - 1, current <= 1, false);
+    const start = Math.max(1, current - 3);
+    const end = Math.min(total, current + 3);
+    for (let p = start; p <= end; p++) {
+        addItem(String(p), p, false, p === current);
+    }
+    addItem('»', current + 1, current >= total, false);
+}
+
+function copyToWorkspace(id) {
+    api('/api/copy_to_workspace', { method: 'POST', body: { id: id } })
+        .then(function (data) {
+            toast('Скопировано: ' + (data.file || '') +
+                (data.description ? ' + ' + data.description : ''), 'success');
+        })
+        .catch(function (err) { toast(err.message, 'error'); });
+}
+
+function openLocation(id) {
+    toast('Открываю в проводнике…', 'info');
+    api('/api/open_location?id=' + encodeURIComponent(id))
+        .then(function () { /* окно откроет сама Windows */ })
+        .catch(function (err) { toast(err.message, 'error'); });
+}
+
+function openDetail(item) {
+    if (!item) return;
+    currentDetail = item;
+    document.getElementById('detailTitle').textContent = item.filename || 'Прошивка';
+    const body = document.getElementById('detailBody');
+    let html = '<div class="row g-2 small">';
+    const fields = [
+        ['Марка', item.brand], ['Модель', item.model], ['Двигатель', item.engine],
+        ['ЭБУ', item.ecu_name], ['ID блока', item.ecu_id], ['Автор', item.author],
+        ['Евро', item.eco_standard], ['Год', item.year], ['Версия', item.version_tag],
+        ['Теги', item.extra_tags], ['Описание', item.description_file_path],
+        ['Размер', fmtSize(item.file_size)], ['Статус', item.status],
+        ['CRC32', item.crc32 || crcCache.get(item.id) || 'не посчитана'],
+        ['Правка', item.manual ? 'вручную ✎' : null],
+        ['Путь', item.file_path],
+    ];
+    fields.forEach(function (pair) {
+        if (pair[1] === null || pair[1] === undefined || pair[1] === '') return;
+        html += '<div class="col-sm-4 text-secondary">' + esc(pair[0]) + '</div>' +
+                '<div class="col-sm-8">' + esc(pair[1]) + '</div>';
+    });
+    html += '</div>';
+
+    // Другие копии этого файла (имя + размер совпадают).
+    html += '<div class="mt-3" id="detailRelations"></div>';
+    html += '<div class="mt-3" id="detailDuplicates">' +
+        '<div class="text-secondary small">Проверяю копии…</div></div>';
+    body.innerHTML = html;
+    detailModal.show();
+    renderRelations(item);
+
+    api('/api/firmware_duplicates?id=' + item.id).then(function (data) {
+        const box = document.getElementById('detailDuplicates');
+        const copies = data.items || [];
+        if (copies.length < 2) {
+            box.innerHTML = '<div class="text-secondary small">Совпадений по имени и размеру нет</div>';
+            return;
+        }
+        let block = '<div class="fw-semibold mb-1">Одинаковое имя и размер: ' + copies.length + '</div>';
+        block += '<div class="small text-secondary mb-2">Это ещё не копии: у одного .bin бывают ' +
+            'десятки версий под разное ГБО и авто. Сверьте содержимое по CRC32.</div>';
+        block += '<button class="btn btn-outline-info btn-sm mb-2" type="button" id="detailVerifyBtn">' +
+            'Σ Сверить CRC32</button>';
+        block += '<div id="detailVerifyResult" class="small mb-2"></div>';
+        block += '<div class="table-responsive"><table class="table table-sm mb-0">' +
+            '<thead><tr class="text-secondary small"><th>Путь</th><th style="width:100px">CRC32</th>' +
+            '<th></th></tr></thead><tbody>';
+        copies.forEach(function (copy) {
+            const current = copy.id === item.id
+                ? ' <span class="badge text-bg-secondary">этот файл</span>' : '';
+            block += '<tr data-copy-id="' + copy.id + '"><td class="small" style="word-break:break-all">' +
+                esc(copy.file_path) + current + '</td>' +
+                '<td class="small text-secondary detail-crc">—</td>' +
+                '<td class="text-end"><button class="btn btn-outline-secondary btn-sm" ' +
+                'type="button" data-copy-open="' + copy.id + '">📁</button></td></tr>';
+        });
+        block += '</tbody></table></div>';
+        box.innerHTML = block;
+        box.querySelectorAll('button[data-copy-open]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                api('/api/open_location?id=' + button.getAttribute('data-copy-open'))
+                    .catch(function (err) { toast(err.message, 'error'); });
+            });
+        });
+        const verifyButton = document.getElementById('detailVerifyBtn');
+        verifyButton.addEventListener('click', function () {
+            verifyButton.disabled = true;
+            const result = document.getElementById('detailVerifyResult');
+            result.innerHTML = '<span class="text-secondary">Считаю суммы…</span>';
+            api('/api/duplicates/verify', { method: 'POST', body: { group_key: data.group } })
+                .then(function (verified) {
+                    (verified.items || []).forEach(function (entry) {
+                        const row = box.querySelector('tr[data-copy-id="' + entry.id + '"]');
+                        if (!row) return;
+                        const cell = row.querySelector('.detail-crc');
+                        cell.textContent = entry.error ? 'ошибка' : entry.crc32;
+                        if (!entry.error) cell.classList.remove('text-secondary');
+                    });
+                    result.innerHTML = verified.identical
+                        ? '<span class="badge text-bg-success">байт-в-байт одинаковы</span>'
+                        : '<span class="badge text-bg-warning">разные прошивки</span> уникальных сумм: ' +
+                          verified.unique;
+                })
+                .catch(function (err) {
+                    result.innerHTML = '<span class="text-danger">' + esc(err.message) + '</span>';
+                })
+                .finally(function () { verifyButton.disabled = false; });
+        });
+    }).catch(function () {
+        document.getElementById('detailDuplicates').innerHTML = '';
+    });
+}
+
+document.getElementById('detailCopyBtn').addEventListener('click', function () {
+    if (currentDetail) copyToWorkspace(currentDetail.id);
+});
+document.getElementById('detailOpenBtn').addEventListener('click', function () {
+    if (currentDetail) openLocation(currentDetail.id);
+});
+document.getElementById('detailPathBtn').addEventListener('click', function () {
+    if (currentDetail) copyText(currentDetail.file_path, 'Путь');
+});
+document.getElementById('exportCsvBtn').addEventListener('click', function () {
+    downloadCsv('/api/export.csv?' + buildQuery(), null, 'firmware-search.csv');
+});
+document.getElementById('batchCsvBtn').addEventListener('click', function () {
+    if (!selection.size) { toast('Ничего не выбрано', 'warning'); return; }
+    downloadCsv('/api/export.csv', { ids: Array.from(selection.keys()) }, 'firmware-selected.csv');
+});
+
+// Фильтры и автодополнение
+let filterModels = [];
+let modelsByBrand = {};
+let filterBrands = [];
+let filterEcus = [];
+let filterAuthors = [];
+let filterEngines = [];
+let suggestionIndex = { brand: [], model: [], engine: [], archive: [], ecu: [], author: [] };
+let suggestionMaps = {};
+let modelBrands = {};
+let aliasMaps = { brand: {}, model: {} };
+const suggestMenu = document.getElementById('suggestMenu');
+let suggestTarget = null;
+let suggestItems = [];
+let suggestActive = -1;
+
+const SUGGEST_LABELS = {
+    brand: 'Марка',
+    model: 'Модель',
+    engine: 'Двигатель',
+    archive: 'Архив',
+    ecu: 'ЭБУ',
+    author: 'Автор',
+};
+const SUGGEST_KINDS = ['brand', 'model', 'engine', 'archive', 'ecu', 'author'];
+const SUGGEST_PRIORITY = { brand: 1, model: 3, engine: 2, archive: 2, ecu: 3, author: 2 };
+
+function normSuggest(value) {
+    return String(value == null ? '' : value).toLowerCase().replace(/ё/g, 'е').trim();
+}
+
+function addSuggestion(kind, value, count, terms, display, brands) {
+    if (!value) return;
+    const key = normSuggest(value);
+    if (!key) return;
+    if (!suggestionMaps[kind]) suggestionMaps[kind] = {};
+    const map = suggestionMaps[kind];
+    const existing = map[key];
+    if (existing) {
+        if ((count || 0) > existing.count) existing.count = count || 0;
+        (terms || []).forEach(function (term) {
+            if (term && existing.terms.indexOf(term) < 0) existing.terms.push(term);
+        });
+        (brands || []).forEach(function (brand) {
+            if (brand && existing.brands.indexOf(brand) < 0) existing.brands.push(brand);
+        });
+        return;
+    }
+    const entry = {
+        kind: kind,
+        value: value,
+        display: display || value,
+        count: count || 0,
+        terms: Array.from(new Set([value].concat(terms || []).filter(Boolean))),
+        brands: (brands || []).slice(),
+        key: key,
+        match: '',
+    };
+    map[key] = entry;
+    suggestionIndex[kind].push(entry);
+}
+
+function buildAliasMap(kind, aliases) {
+    const map = {};
+    Object.keys(aliases || {}).forEach(function (canonical) {
+        (aliases[canonical] || []).forEach(function (alias) {
+            const key = normSuggest(alias);
+            if (key && !map[key]) map[key] = canonical;
+        });
+        const canonicalKey = normSuggest(canonical);
+        if (canonicalKey && !map[canonicalKey]) map[canonicalKey] = canonical;
+    });
+    aliasMaps[kind] = map;
+}
+
+function buildSuggestionIndex(f) {
+    suggestionIndex = { brand: [], model: [], engine: [], archive: [], ecu: [], author: [] };
+    suggestionMaps = {};
+    modelBrands = {};
+    buildAliasMap('brand', f.brand_aliases);
+    buildAliasMap('model', f.model_aliases);
+
+    const modelCounts = {};
+    (f.model_counts || []).forEach(function (item) {
+        modelCounts[item.value] = item.count;
+    });
+
+    (f.brand_counts || []).forEach(function (item) {
+        const aliases = (f.brand_aliases && f.brand_aliases[item.value]) || [];
+        addSuggestion('brand', item.value, item.count, aliases, item.value);
+    });
+
+    const allModels = new Set(f.models || []);
+    Object.keys(f.models_by_brand || {}).forEach(function (brand) {
+        (f.models_by_brand[brand] || []).forEach(function (model) {
+            allModels.add(model);
+            if (!modelBrands[model]) modelBrands[model] = [];
+            if (modelBrands[model].indexOf(brand) < 0) modelBrands[model].push(brand);
+        });
+    });
+    allModels.forEach(function (model) {
+        const aliases = (f.model_aliases && f.model_aliases[model]) || [];
+        addSuggestion('model', model, modelCounts[model] || 0, aliases, model, modelBrands[model] || []);
+    });
+
+    (f.engine_counts || []).forEach(function (item) {
+        addSuggestion('engine', item.value, item.count, [], item.value);
+    });
+    (f.archives || []).forEach(function (item) {
+        addSuggestion('archive', item.value, item.count, [], item.value);
+    });
+    (f.ecu_counts || []).forEach(function (item) {
+        const terms = [item.value];
+        const latin = String(item.value).replace(/М/g, 'M').replace(/м/g, 'm');
+        if (latin !== item.value) terms.push(latin);
+        addSuggestion('ecu', item.value, item.count, terms, item.value);
+    });
+    (f.author_counts || []).forEach(function (item) {
+        addSuggestion('author', item.value, item.count, [], item.value);
+    });
+}
+
+function resolveCanonical(kind, value) {
+    const key = normSuggest(value);
+    return (aliasMaps[kind] && aliasMaps[kind][key]) || String(value || '').trim();
+}
+
+// Подсказки моделей фильтруются по выбранной марке динамически.
+function renderModelOptions() {}
+
+function loadFilters() {
+    api('/api/filters').then(function (data) {
+        const f = data.filters || {};
+        filterModels = f.models || [];
+        modelsByBrand = f.models_by_brand || {};
+        filterBrands = f.brands || [];
+        filterEcus = f.ecus || [];
+        filterAuthors = f.authors || [];
+        filterEngines = f.engines || [];
+        buildSuggestionIndex(f);
+
+        const brandList = document.getElementById('brandOptionsList');
+        if (brandList) {
+            brandList.innerHTML = '';
+            (f.brands || []).forEach(function (value) {
+                const option = document.createElement('option');
+                option.value = value;
+                brandList.appendChild(option);
+            });
+        }
+        renderModelOptions();
+        if (pendingUrlFilters) {
+            const filters = pendingUrlFilters;
+            pendingUrlFilters = null;
+            applyFilters(filters);
+        }
+    }).catch(function () {});
+}
+
+function getSuggestions(kind, query) {
+    const q = normSuggest(query);
+    let entries;
+    if (kind === 'all') {
+        entries = [];
+        SUGGEST_KINDS.forEach(function (itemKind) {
+            entries = entries.concat(suggestionIndex[itemKind] || []);
+        });
+    } else {
+        entries = (suggestionIndex[kind] || []).slice();
+    }
+
+    if (kind === 'model') {
+        const rawBrand = document.getElementById('brandFilter').value.trim();
+        const brand = resolveCanonical('brand', rawBrand);
+        if (brand && filterBrands.indexOf(brand) >= 0) {
+            entries = entries.filter(function (entry) {
+                return (entry.brands || []).indexOf(brand) >= 0;
+            });
+        }
+    }
+
+    if (!q) {
+        entries.forEach(function (entry) { entry.match = ''; });
+        return entries.sort(function (a, b) { return b.count - a.count; }).slice(0, 12);
+    }
+
+    const scored = [];
+    entries.forEach(function (entry) {
+        let bestScore = -1;
+        let bestTerm = '';
+        entry.terms.forEach(function (term) {
+            const normalized = normSuggest(term);
+            if (!normalized) return;
+            let score = -1;
+            if (normalized === q) {
+                score = 100;
+            } else if (normalized.indexOf(q) === 0) {
+                score = 80 - Math.min(20, normalized.length - q.length);
+            } else if (normalized.indexOf(q) >= 0) {
+                score = 50 - Math.min(20, normalized.indexOf(q));
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestTerm = term;
+            }
+        });
+        if (bestScore >= 0) {
+            entry.match = bestTerm;
+            scored.push({ entry: entry, score: bestScore });
+        }
+    });
+    scored.sort(function (a, b) {
+        if (b.score !== a.score) return b.score - a.score;
+        // Точное совпадение с моделью/ЭБУ важнее широкой марки:
+        // "гранта" должна вести на Granta, а не на всю LADA.
+        if (b.score >= 80) {
+            const priorityA = SUGGEST_PRIORITY[a.entry.kind] || 0;
+            const priorityB = SUGGEST_PRIORITY[b.entry.kind] || 0;
+            if (priorityB !== priorityA) return priorityB - priorityA;
+        }
+        if (b.entry.count !== a.entry.count) return b.entry.count - a.entry.count;
+        return a.entry.display.length - b.entry.display.length;
+    });
+    return scored.slice(0, 20).map(function (item) { return item.entry; });
+}
+
+function positionSuggest(input) {
+    const rect = input.getBoundingClientRect();
+    const width = Math.max(rect.width, 280);
+    let left = rect.left;
+    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+    let top = rect.bottom + 4;
+    const spaceBelow = window.innerHeight - top - 8;
+    const spaceAbove = rect.top - 12;
+    let maxHeight = Math.min(320, spaceBelow);
+    if (maxHeight < 120 && spaceAbove > maxHeight) {
+        maxHeight = Math.min(320, spaceAbove);
+        top = rect.top - maxHeight - 4;
+    }
+    suggestMenu.style.left = Math.max(8, left) + 'px';
+    suggestMenu.style.top = Math.max(8, top) + 'px';
+    suggestMenu.style.width = width + 'px';
+    suggestMenu.style.maxHeight = Math.max(80, maxHeight) + 'px';
+}
+
+function hideSuggest() {
+    suggestMenu.hidden = true;
+    suggestMenu.innerHTML = '';
+    suggestTarget = null;
+    suggestItems = [];
+    suggestActive = -1;
+}
+
+function chooseSuggestion(index) {
+    const item = suggestItems[index];
+    const input = suggestTarget;
+    if (!item || !input) return;
+    input.value = item.value;
+    hideSuggest();
+    if (input.id === 'searchInput') {
+        state.page = 1;
+        loadResults();
+    } else {
+        if (input.id === 'brandFilter') renderModelOptions();
+        onFilterChange();
+    }
+}
+
+function showSuggest(input, kind) {
+    const items = getSuggestions(kind, input.value);
+    suggestTarget = input;
+    suggestItems = items;
+    suggestActive = -1;
+    if (!items.length) {
+        hideSuggest();
+        return;
+    }
+    suggestMenu.innerHTML = '';
+    items.forEach(function (item, index) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'suggest-item';
+        button.dataset.index = String(index);
+
+        const category = document.createElement('span');
+        category.className = 'suggest-cat';
+        category.textContent = SUGGEST_LABELS[item.kind] || '';
+
+        const value = document.createElement('span');
+        value.className = 'suggest-value';
+        const matchedAlias = item.match && normSuggest(item.match) !== normSuggest(item.value);
+        value.textContent = matchedAlias ? item.display + ' · ' + item.match : item.display;
+
+        const count = document.createElement('span');
+        count.className = 'suggest-count';
+        count.textContent = item.count ? String(item.count) : '';
+
+        button.appendChild(category);
+        button.appendChild(value);
+        button.appendChild(count);
+        button.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+            chooseSuggestion(index);
+        });
+        suggestMenu.appendChild(button);
+    });
+    suggestMenu.hidden = false;
+    positionSuggest(input);
+}
+
+function moveSuggest(delta) {
+    if (suggestMenu.hidden || !suggestItems.length) return;
+    suggestActive = (suggestActive + delta + suggestItems.length) % suggestItems.length;
+    Array.from(suggestMenu.children).forEach(function (element, index) {
+        element.classList.toggle('active', index === suggestActive);
+    });
+    const active = suggestMenu.children[suggestActive];
+    if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function normalizeFilterValue(input) {
+    const kind = input.dataset.suggest;
+    if (kind !== 'brand' && kind !== 'model') return;
+    const canonical = resolveCanonical(kind, input.value);
+    if (!canonical || canonical === input.value) return;
+    if (kind === 'brand' && filterBrands.indexOf(canonical) < 0) return;
+    input.value = canonical;
+}
+
+function onFilterChange() {
+    state.page = 1;
+    loadResults();
+}
+
+document.querySelectorAll('[data-suggest]').forEach(function (input) {
+    const kind = input.dataset.suggest;
+    input.addEventListener('input', function () {
+        showSuggest(input, kind);
+        if (input.id === 'brandFilter') renderModelOptions();
+    });
+    input.addEventListener('focus', function () {
+        if (input.value.trim()) showSuggest(input, kind);
+    });
+    input.addEventListener('blur', function () {
+        window.setTimeout(function () {
+            if (suggestTarget === input) hideSuggest();
+        }, 120);
+    });
+    input.addEventListener('keydown', function (event) {
+        if (suggestTarget === input && !suggestMenu.hidden) {
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                moveSuggest(1);
+                return;
+            }
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                moveSuggest(-1);
+                return;
+            }
+            if (event.key === 'Enter' && suggestActive >= 0) {
+                event.preventDefault();
+                chooseSuggestion(suggestActive);
+                return;
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideSuggest();
+                return;
+            }
+        }
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            hideSuggest();
+            if (input.id === 'searchInput') {
+                state.page = 1;
+                loadResults();
+            } else {
+                normalizeFilterValue(input);
+                onFilterChange();
+            }
+        }
+    });
+    if (input.id !== 'searchInput') {
+        input.addEventListener('change', function () {
+            normalizeFilterValue(input);
+            if (input.id === 'brandFilter') renderModelOptions();
+            onFilterChange();
+        });
+    }
+});
+window.addEventListener('scroll', function (event) {
+    if (!suggestMenu.hidden && !suggestMenu.contains(event.target)) hideSuggest();
+}, true);
+window.addEventListener('resize', function () {
+    if (!suggestMenu.hidden) hideSuggest();
+});
+['gboFilter', 'tuneFilter', 'stockFilter', 'unknownOnlyFilter', 'favOnlyFilter'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', onFilterChange);
+});
+
+document.getElementById('resetFiltersBtn').addEventListener('click', function () {
+    hideSuggest();
+    document.getElementById('brandFilter').value = '';
+    document.getElementById('modelFilter').value = '';
+    document.getElementById('engineFilter').value = '';
+    document.getElementById('archiveFilter').value = '';
+    document.getElementById('ecuFilter').value = '';
+    document.getElementById('authorFilter').value = '';
+    document.getElementById('gboFilter').checked = false;
+    document.getElementById('tuneFilter').checked = false;
+    document.getElementById('stockFilter').checked = false;
+    document.getElementById('unknownOnlyFilter').checked = false;
+    document.getElementById('favOnlyFilter').checked = false;
+    renderModelOptions();
+    state.page = 1;
+    loadResults();
+});
+
+// Поиск
+const searchInput = document.getElementById('searchInput');
+const debouncedSearch = debounce(function () { state.page = 1; loadResults(); }, 400);
+searchInput.addEventListener('input', debouncedSearch);
+document.getElementById('clearSearchBtn').addEventListener('click', function () {
+    hideSuggest();
+    searchInput.value = '';
+    state.page = 1;
+    loadResults();
+});
+
+document.getElementById('sortSelect').addEventListener('change', function (event) {
+    state.sort = event.target.value;
+    state.page = 1;
+    loadResults();
+});
+
+// Экспорт и копирование в буфер
+function saveBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
+}
+
+function downloadCsv(url, body, name) {
+    if (!body) {
+        window.location = url;
+        return;
+    }
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.blob();
+    }).then(function (blob) {
+        saveBlob(blob, name || 'firmware.csv');
+        toast('CSV сохранён', 'success');
+    }).catch(function (err) { toast(err.message, 'error'); });
+}
+
+function copyText(text, label) {
+    if (!text) return;
+    const done = function () {
+        toast((label || 'Скопировано') + ': …' + String(text).slice(-55), 'success');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text, done); });
+    } else {
+        fallbackCopy(text, done);
+    }
+}
+
+function fallbackCopy(text, done) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); done(); }
+    catch (e) { toast('Не удалось скопировать', 'error'); }
+    area.remove();
+}
+
+// Избранное и подборки
+function toggleFavorite(id, value, button) {
+    api('/api/favorite', { method: 'POST', body: { id: id, value: value } }).then(function (data) {
+        if (button) {
+            button.textContent = value ? '★' : '☆';
+            button.classList.toggle('text-warning', value);
+            button.classList.toggle('text-secondary', !value);
+        }
+        const item = state.items.find(function (x) { return x.id === id; });
+        if (item) item.fav = value;
+        toast(value ? 'Добавлено в избранное' : 'Убрано из избранного', 'info');
+        if (document.getElementById('favOnlyFilter').checked && !value) loadResults();
+    }).catch(function (err) { toast(err.message, 'error'); });
+}
+
+let filterSetCache = [];
+
+function loadFilterSets() {
+    api('/api/filter_sets').then(function (data) {
+        filterSetCache = data.items || [];
+        const select = document.getElementById('filterSetsSelect');
+        const current = select.value;
+        select.innerHTML = '<option value="">Подборки…</option>';
+        filterSetCache.forEach(function (item) {
+            const option = document.createElement('option');
+            option.value = item.name;
+            option.textContent = item.name;
+            select.appendChild(option);
+        });
+        if (current) select.value = current;
+    }).catch(function () {});
+}
+
+document.getElementById('saveFilterSetBtn').addEventListener('click', function () {
+    const name = prompt('Название подборки:', '');
+    if (!name || !name.trim()) return;
+    api('/api/filter_sets', { method: 'POST', body: { name: name.trim(), payload: currentFilters() } })
+        .then(function () { toast('Подборка сохранена: ' + name.trim(), 'success'); loadFilterSets(); })
+        .catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.getElementById('deleteFilterSetBtn').addEventListener('click', function () {
+    const select = document.getElementById('filterSetsSelect');
+    if (!select.value) { toast('Сначала выберите подборку', 'warning'); return; }
+    if (!confirm('Удалить подборку «' + select.value + '»?')) return;
+    api('/api/filter_sets/delete', { method: 'POST', body: { name: select.value } })
+        .then(function () { toast('Удалено', 'success'); select.value = ''; loadFilterSets(); })
+        .catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.getElementById('filterSetsSelect').addEventListener('change', function (event) {
+    const name = event.target.value;
+    if (!name) return;
+    const found = filterSetCache.find(function (item) { return item.name === name; });
+    if (found) applyFilters(found.payload);
+});
+
+// Пакетные операции с выделением
+const SELECTION_KEY = 'firmware_selection';
+
+function saveSelection() {
+    try {
+        localStorage.setItem(SELECTION_KEY, JSON.stringify(Array.from(selection.keys())));
+    } catch (e) { /* приватный режим — не страшно */ }
+}
+
+function restoreSelection() {
+    try {
+        const raw = localStorage.getItem(SELECTION_KEY);
+        if (!raw) return;
+        (JSON.parse(raw) || []).forEach(function (id) {
+            selection.set(Number(id), true);
+        });
+    } catch (e) { /* игнорируем битые данные */ }
+}
+
+const AUTO_CRC_LIMIT = 12;
+let crcRefreshToken = 0;
+
+function updateRowCrcCell(id, crc, error) {
+    const cell = document.querySelector('.row-crc[data-id="' + id + '"]');
+    if (!cell) return;
+    if (crc) {
+        cell.innerHTML = '<code class="text-warning">' + esc(crc) + '</code>';
+    } else {
+        cell.innerHTML = '<span class="text-danger" title="' +
+            esc(error || 'Не удалось посчитать') + '">ошибка</span>';
+    }
+}
+
+function ensureCrc(id) {
+    const item = state.items.find(function (x) { return x.id === id; });
+    if (item && item.crc32) {
+        crcCache.set(id, item.crc32);
+        return Promise.resolve(item.crc32);
+    }
+    if (crcCache.has(id)) return Promise.resolve(crcCache.get(id));
+    if (crcInFlight.has(id)) return crcInFlight.get(id);
+
+    const promise = api('/api/batch_checksums', { method: 'POST', body: { ids: [id] } })
+        .then(function (data) {
+            const entry = (data.items || [])[0];
+            if (!entry) return null;
+            if (entry.crc32) {
+                crcCache.set(id, entry.crc32);
+                if (item) item.crc32 = entry.crc32;
+                updateRowCrcCell(id, entry.crc32);
+                return entry.crc32;
+            }
+            updateRowCrcCell(id, null, entry.error);
+            return null;
+        })
+        .catch(function (err) {
+            updateRowCrcCell(id, null, err.message);
+            return null;
+        })
+        .finally(function () {
+            crcInFlight.delete(id);
+        });
+    crcInFlight.set(id, promise);
+    return promise;
+}
+
+function refreshSelectionCrc() {
+    const info = document.getElementById('selectionCrcInfo');
+    if (!info) return;
+    const ids = Array.from(selection.keys());
+    if (!ids.length) {
+        info.textContent = '';
+        return;
+    }
+    const token = ++crcRefreshToken;
+    const limited = ids.slice(0, AUTO_CRC_LIMIT);
+    const values = new Map();
+    let pending = limited.length;
+    info.textContent = 'КС: считаю…';
+
+    function render() {
+        if (token !== crcRefreshToken) return;
+        const known = Array.from(values.values());
+        if (!known.length) {
+            info.textContent = pending > 0 ? 'КС: считаю…' : 'КС: ошибка расчёта';
+            return;
+        }
+        const unique = Array.from(new Set(known));
+        let text = unique.map(function (crc) {
+            return '<code>' + esc(crc) + '</code>';
+        }).join(' · ');
+        if (known.length > 1) {
+            text += unique.length === 1 ? ' — одинаковые' : ' — разные';
+        }
+        if (pending > 0) {
+            text += ' · считаю ещё ' + pending;
+        }
+        if (ids.length > limited.length) {
+            text += ' (ещё ' + (ids.length - limited.length) + ' не считал)';
+        }
+        info.innerHTML = 'КС: ' + text;
+    }
+
+    limited.forEach(function (id) {
+        ensureCrc(id).then(function (crc) {
+            pending -= 1;
+            if (crc) values.set(id, crc);
+            render();
+        });
+    });
+}
+
+function updateSelectionBar() {
+    document.getElementById('selectionCount').textContent = selection.size;
+    document.getElementById('selectionBar').hidden = selection.size === 0;
+    const boxes = Array.from(document.querySelectorAll('.row-check'));
+    const selectAll = document.getElementById('selectAllCheck');
+    selectAll.checked = boxes.length > 0 && boxes.every(function (box) { return box.checked; });
+    saveSelection();
+    refreshSelectionCrc();
+}
+
+document.getElementById('resultsBody').addEventListener('change', function (event) {
+    const box = event.target;
+    if (!box.classList || !box.classList.contains('row-check')) return;
+    const id = Number(box.getAttribute('data-id'));
+    if (box.checked) selection.set(id, true); else selection.delete(id);
+    updateSelectionBar();
+});
+
+document.getElementById('selectAllCheck').addEventListener('change', function (event) {
+    const checked = event.target.checked;
+    document.querySelectorAll('.row-check').forEach(function (box) {
+        box.checked = checked;
+        const id = Number(box.getAttribute('data-id'));
+        if (checked) selection.set(id, true); else selection.delete(id);
+    });
+    updateSelectionBar();
+});
+
+document.getElementById('batchClearBtn').addEventListener('click', function () {
+    selection.clear();
+    document.querySelectorAll('.row-check').forEach(function (box) { box.checked = false; });
+    document.getElementById('selectAllCheck').checked = false;
+    updateSelectionBar();
+});
+
+document.getElementById('batchCopyBtn').addEventListener('click', function () {
+    const ids = Array.from(selection.keys());
+    const button = this;
+    button.disabled = true;
+    api('/api/batch_copy', { method: 'POST', body: { ids: ids } }).then(function (data) {
+        toast('Скопировано файлов: ' + data.total, 'success');
+        if ((data.errors || []).length) {
+            toast('Ошибок: ' + data.errors.length + ' — ' + data.errors[0], 'warning');
+        }
+    }).catch(function (err) {
+        toast(err.message, 'error');
+    }).finally(function () { button.disabled = false; });
+});
+
+function showChecksums(ids, force) {
+    const body = document.getElementById('crcBody');
+    const modal = new bootstrap.Modal(document.getElementById('crcModal'));
+    body.innerHTML = '<div class="text-secondary py-3">Считаю суммы…</div>';
+    modal.show();
+    api('/api/batch_checksums', { method: 'POST', body: { ids: ids, force: !!force } })
+        .then(function (data) {
+            const items = data.items || [];
+            const cachedCount = items.filter(function (item) { return item.cached; }).length;
+            let html = data.identical
+                ? '<div class="alert alert-success py-2">Все файлы байт-в-байт одинаковы</div>'
+                : '<div class="alert alert-warning py-2">Уникальных сумм: ' + data.unique +
+                  ' из ' + items.length + '</div>';
+            if (cachedCount) {
+                html += '<div class="small text-secondary mb-2">Из кэша: ' + cachedCount +
+                    ' из ' + items.length +
+                    ' · <button class="btn btn-link btn-sm p-0" id="crcForceBtn">пересчитать заново</button></div>';
+            }
+            html += '<table class="table table-sm mb-0"><thead><tr class="text-secondary small">' +
+                '<th>Файл</th><th style="width:100px">CRC32</th>' +
+                '<th class="text-end" style="width:90px">Размер</th></tr></thead><tbody>';
+            items.forEach(function (item) {
+                html += '<tr><td class="small" style="word-break:break-all">' + esc(item.filename) +
+                    (item.cached ? ' <span class="badge text-bg-dark border border-secondary">кэш</span>' : '') +
+                    '</td><td class="small">' +
+                    (item.error ? '<span class="text-danger">ошибка</span>' : esc(item.crc32)) +
+                    '</td><td class="small text-end">' + fmtSize(item.size) + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            body.innerHTML = html;
+            const forceBtn = document.getElementById('crcForceBtn');
+            if (forceBtn) forceBtn.addEventListener('click', function () {
+                showChecksums(ids, true);
+            });
+        })
+        .catch(function (err) {
+            body.innerHTML = '<div class="text-danger">' + esc(err.message) + '</div>';
+        });
+}
+
+document.getElementById('batchCrcBtn').addEventListener('click', function () {
+    showChecksums(Array.from(selection.keys()), false);
+});
+
+// Связанные записи: файлы в той же папке и быстрые переходы
+function renderRelations(item) {
+    const box = document.getElementById('detailRelations');
+    if (!box) return;
+
+    let links = '';
+    if (item.ecu_name) {
+        links += '<a class="btn btn-outline-info btn-sm me-1" href="/?ecu=' +
+            encodeURIComponent(item.ecu_name) + '">Все с ЭБУ ' + esc(item.ecu_name) + '</a>';
+    }
+    if (item.archive_path) {
+        const base = String(item.archive_path).split(/[\\/]/).pop();
+        links += '<a class="btn btn-outline-secondary btn-sm me-1" href="/?archive=' +
+            encodeURIComponent(base) + '">Все из архива</a>';
+    }
+    if (item.brand && item.model) {
+        links += '<a class="btn btn-outline-secondary btn-sm me-1" href="/?brand=' +
+            encodeURIComponent(item.brand) + '&model=' + encodeURIComponent(item.model) +
+            '">Вся модель</a>';
+    }
+    const head = links ? '<div class="mb-2">' + links + '</div>' : '';
+    box.innerHTML = head + '<div class="text-secondary small">Ищу файлы в этой же папке…</div>';
+
+    api('/api/firmware_siblings?id=' + item.id).then(function (data) {
+        const rows = data.items || [];
+        if (rows.length < 2) {
+            box.innerHTML = head + '<div class="text-secondary small">В этой папке больше файлов нет</div>';
+            return;
+        }
+        let block = head + '<div class="fw-semibold mb-1">В этой папке: ' + rows.length + '</div>';
+        block += '<div class="small text-secondary mb-1" style="word-break:break-all">' +
+            esc(data.parent) + '</div>';
+        block += '<div class="table-responsive"><table class="table table-sm mb-0"><tbody>';
+        rows.forEach(function (row) {
+            let tag = '';
+            if (row.is_stock) tag = '<span class="badge text-bg-secondary">сток</span>';
+            else if (row.is_tune) tag = '<span class="badge text-bg-warning">тюн</span>';
+            if (row.id === item.id) tag += ' <span class="badge text-bg-info">этот</span>';
+            block += '<tr><td class="small" style="word-break:break-all">' + esc(row.filename) + '</td>' +
+                '<td style="width:130px">' + tag + '</td>' +
+                '<td class="text-end" style="width:60px">' +
+                '<button class="btn btn-outline-secondary btn-sm" type="button" data-sib="' + row.id + '">📁</button>' +
+                '</td></tr>';
+        });
+        block += '</tbody></table></div>';
+        box.innerHTML = block;
+        box.querySelectorAll('button[data-sib]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                api('/api/open_location?id=' + button.getAttribute('data-sib'))
+                    .catch(function (err) { toast(err.message, 'error'); });
+            });
+        });
+    }).catch(function () { box.innerHTML = head; });
+}
+
+// Редактирование полей прошивки
+let currentEdit = null;
+const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+
+function openEdit(item) {
+    if (!item) return;
+    currentEdit = item;
+    document.getElementById('editTitle').textContent = item.filename || 'Прошивка';
+    document.getElementById('editBrand').value = item.brand || '';
+    document.getElementById('editModel').value = item.model || '';
+    document.getElementById('editEngine').value = item.engine || '';
+    document.getElementById('editEcu').value = item.ecu_name || '';
+    document.getElementById('editEcuId').value = item.ecu_id || '';
+    document.getElementById('editAuthor').value = item.author || '';
+    document.getElementById('editEco').value = item.eco_standard || '';
+    document.getElementById('editVersion').value = item.version_tag || '';
+    document.getElementById('editYear').value = item.year || '';
+    document.getElementById('editTags').value = item.extra_tags || '';
+    document.getElementById('editGbo').checked = !!item.has_gbo;
+    document.getElementById('editTune').checked = !!item.is_tune;
+    document.getElementById('editStock').checked = !!item.is_stock;
+    document.getElementById('editImmo').checked = !!item.imm_off;
+    editModal.show();
+}
+
+document.getElementById('editSaveBtn').addEventListener('click', function () {
+    if (!currentEdit) return;
+    const payload = {
+        id: currentEdit.id,
+        brand: document.getElementById('editBrand').value.trim(),
+        model: document.getElementById('editModel').value.trim(),
+        engine: document.getElementById('editEngine').value.trim(),
+        ecu_name: document.getElementById('editEcu').value.trim(),
+        ecu_id: document.getElementById('editEcuId').value.trim(),
+        author: document.getElementById('editAuthor').value.trim(),
+        eco_standard: document.getElementById('editEco').value.trim(),
+        version_tag: document.getElementById('editVersion').value.trim(),
+        extra_tags: document.getElementById('editTags').value.trim(),
+        year: document.getElementById('editYear').value,
+        has_gbo: document.getElementById('editGbo').checked,
+        is_tune: document.getElementById('editTune').checked,
+        is_stock: document.getElementById('editStock').checked,
+        imm_off: document.getElementById('editImmo').checked,
+    };
+    api('/api/update_firmware', { method: 'POST', body: payload }).then(function () {
+        toast('Сохранено', 'success');
+        editModal.hide();
+        loadResults();
+    }).catch(function (err) { toast(err.message, 'error'); });
+});
+
+// Горячие клавиши: "/" — в поиск, Esc — сбросить фокус
+document.addEventListener('keydown', function (event) {
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    if (event.key === '/' && tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
+        event.preventDefault();
+        document.getElementById('searchInput').focus();
+    }
+});
+
+// Инициализация
+let pendingUrlFilters = null;
+
+document.addEventListener('DOMContentLoaded', function () {
+    restoreSelection();
+    loadFilterSets();
+
+    const params = new URLSearchParams(location.search);
+    if (params.toString()) {
+        // Ссылку вида /?favorites=1 или /?q=гранта&brand=… можно сохранить в закладки.
+        pendingUrlFilters = {
+            q: params.get('q') || '',
+            brand: params.get('brand') || '',
+            model: params.get('model') || '',
+            engine: params.get('engine') || '',
+            archive: params.get('archive') || '',
+            ecu: params.get('ecu') || '',
+            author: params.get('author') || '',
+            gbo: params.get('gbo') === '1',
+            tune: params.get('tune') === '1',
+            stock: params.get('stock') === '1',
+            unknown: params.get('status') === 'unknown',
+            favorites: params.get('favorites') === '1',
+            sort: params.get('sort') || 'relevance',
+        };
+    }
+    loadFilters();
+    updateSelectionBar();
+    if (!pendingUrlFilters) loadResults();
+});
+</script>
+{% endblock %}

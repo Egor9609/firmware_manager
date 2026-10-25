@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Архивы — Firmware Manager{% endblock %}
+{% block active %}archives{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0">Обработанные архивы</h4>
+    <div class="small text-secondary" id="lastScanLabel">—</div>
+</div>
+
+{% include "_indexing.html" %}
+
+<div class="row g-2 mb-3">
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-info" id="sumArchives">0</div>
+            <div class="label">Архивов обработано <span id="archivesNote" class="text-secondary"></span></div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-success" id="sumFiles">0</div>
+            <div class="label">Файлов из архивов</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-warning" id="sumEmpty">0</div>
+            <div class="label">Пустых</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-danger" id="sumErrors">0</div>
+            <div class="label">С ошибками</div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label form-label-sm">Поиск по имени или пути</label>
+                <input type="text" class="form-control form-control-sm" id="archiveSearch"
+                       placeholder="ADACT, Tazoff, .rar…">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label form-label-sm">Статус</label>
+                <select class="form-select form-select-sm" id="archiveStatus">
+                    <option value="all">Все</option>
+                    <option value="ok">Есть файлы</option>
+                    <option value="empty">Пусто (0 файлов)</option>
+                    <option value="error">С ошибками</option>
+                    <option value="pending">В очереди</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label form-label-sm">Сортировка</label>
+                <select class="form-select form-select-sm" id="archiveSort">
+                    <option value="files">По числу файлов</option>
+                    <option value="name">По имени</option>
+                    <option value="size">По размеру</option>
+                    <option value="recent">По времени</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <div class="d-flex gap-1">
+                    <button class="btn btn-outline-info btn-sm" type="button" id="checkDiskBtn"
+                            title="Сверить список с диском">🔍</button>
+                    <button class="btn btn-outline-success btn-sm" type="button" id="archivesCsvBtn"
+                            title="Выгрузить список архивов в CSV">⬇ CSV</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="checkDiskResult" class="mb-3"></div>
+
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+        <thead>
+        <tr class="text-secondary">
+            <th>Архив</th>
+            <th class="text-end" style="width:90px">Файлов</th>
+            <th class="text-end" style="width:110px">Вложенных</th>
+            <th class="text-end" style="width:100px">Размер</th>
+            <th style="width:150px">Обработан</th>
+            <th style="width:130px">Статус</th>
+        </tr>
+        </thead>
+        <tbody id="archiveRows">
+        <tr><td colspan="6" class="text-center text-secondary py-4">Загрузка…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="d-flex justify-content-between align-items-center">
+    <div class="small text-secondary" id="archiveInfo"></div>
+    <div>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="prevPage">← Назад</button>
+        <span class="mx-2 small" id="pageLabel"></span>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="nextPage">Вперёд →</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ARCHIVE_PAGE_SIZE = 50;
+const archiveState = { page: 1, pages: 1, status: 'all', q: '', sort: 'files' };
+
+// Вызывается блоком индексации после завершения скана или переразбора.
+window.onIndexFinished = function () {
+    loadArchives(archiveState.page || 1);
+};
+
+function archiveStatusBadge(item) {
+    if (!item.scanned_at) {
+        return '<span class="badge text-bg-dark border border-secondary">в очереди</span>';
+    }
+    const hasError = item.error && String(item.error).length;
+    if (hasError && !item.files) {
+        return '<span class="badge text-bg-danger">ошибка</span>';
+    }
+    if (hasError) {
+        return '<span class="badge text-bg-warning">частично</span>';
+    }
+    if (!item.files) {
+        return '<span class="badge text-bg-secondary">пусто</span>';
+    }
+    return '<span class="badge text-bg-success">ок</span>';
+}
+
+function renderArchives(data) {
+    const summary = data.summary || {};
+    const totalArchives = summary.archives || 0;
+    const pending = summary.pending || 0;
+    document.getElementById('sumArchives').textContent = summary.done || 0;
+    document.getElementById('archivesNote').textContent = pending
+        ? ('из ' + totalArchives + ', в очереди ' + pending)
+        : ('из ' + totalArchives);
+    document.getElementById('sumFiles').textContent = summary.files || 0;
+    document.getElementById('sumEmpty').textContent = summary.empty || 0;
+    document.getElementById('sumErrors').textContent = summary.with_error || 0;
+    document.getElementById('lastScanLabel').textContent =
+        summary.last_scan ? ('Последняя индексация: ' + fmtDate(summary.last_scan)) : 'Индексация ещё не запускалась';
+
+    const rows = document.getElementById('archiveRows');
+    const items = data.items || [];
+    if (!items.length) {
+        rows.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">Ничего не найдено</td></tr>';
+    } else {
+        rows.innerHTML = items.map(function (item) {
+            const error = item.error
+                ? '<div class="small text-danger text-truncate" style="max-width:520px" title="' + esc(item.error) + '">' + esc(item.error) + '</div>'
+                : '';
+            const cacheMark = item.from_cache
+                ? ' <span class="badge text-bg-dark border border-secondary" title="Взято из кэша, архив не перечитывался">кэш</span>'
+                : '';
+            return '<tr>' +
+                '<td><div class="fw-semibold">' + esc(item.name) + cacheMark + '</div>' +
+                '<div class="small text-secondary text-truncate" style="max-width:640px" title="' + esc(item.path) + '">' + esc(item.path) + '</div>' +
+                error + '</td>' +
+                '<td class="text-end">' + esc(item.files) + '</td>' +
+                '<td class="text-end">' + (item.nested ? esc(item.nested) : '—') + '</td>' +
+                '<td class="text-end">' + fmtSize(item.size) + '</td>' +
+                '<td class="small text-secondary">' + fmtDate(item.scanned_at) + '</td>' +
+                '<td>' + archiveStatusBadge(item) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    document.getElementById('archiveInfo').textContent = 'Найдено: ' + (data.total || 0);
+    document.getElementById('pageLabel').textContent = (data.page || 1) + ' / ' + (data.pages || 1) + ' (всего ' + (data.total || 0) + ')';
+    archiveState.pages = data.pages || 1;
+    archiveState.page = data.page || 1;
+    document.getElementById('prevPage').disabled = archiveState.page <= 1;
+    document.getElementById('nextPage').disabled = archiveState.page >= archiveState.pages;
+}
+
+function loadArchives(page) {
+    const params = new URLSearchParams({
+        page: page || 1,
+        per_page: ARCHIVE_PAGE_SIZE,
+        status: archiveState.status,
+        sort: archiveState.sort,
+    });
+    if (archiveState.q) params.set('q', archiveState.q);
+    return api('/api/archives?' + params.toString())
+        .then(renderArchives)
+        .catch(function (err) { toast(err.message, 'error'); });
+}
+
+function checkDisk() {
+    const box = document.getElementById('checkDiskResult');
+    box.innerHTML = '<div class="text-secondary small">Сканирую папку с прошивками…</div>';
+    return api('/api/archives/check').then(function (data) {
+        let html = '<div class="alert alert-secondary mb-2 py-2">';
+        html += 'На диске архивов: <strong>' + esc(data.on_disk) + '</strong>, ' +
+            'в списке обработанных: <strong>' + esc(data.in_index) + '</strong>.';
+        if (!data.missing_count && !data.stale_count) {
+            html += ' <span class="text-success">Всё совпадает — пропущенных нет.</span>';
+        }
+        html += '</div>';
+        if (data.missing_count) {
+            html += '<div class="alert alert-warning py-2"><div class="fw-semibold mb-1">' +
+                'Не обработаны (' + esc(data.missing_count) + ') — появились после последней индексации:</div>';
+            html += '<ul class="mb-0 small" style="max-height:220px;overflow:auto">';
+            data.missing.forEach(function (item) {
+                html += '<li>' + esc(item.path) + '</li>';
+            });
+            html += '</ul></div>';
+        }
+        if (data.stale_count) {
+            html += '<div class="alert alert-dark border border-secondary py-2"><div class="fw-semibold mb-1">' +
+                'Есть в списке, но пропали с диска (' + esc(data.stale_count) + '):</div>';
+            html += '<ul class="mb-0 small" style="max-height:160px;overflow:auto">';
+            data.stale.forEach(function (item) {
+                html += '<li>' + esc(item.path) + '</li>';
+            });
+            html += '</ul></div>';
+        }
+        box.innerHTML = html;
+    }).catch(function (err) {
+        box.innerHTML = '<div class="alert alert-danger py-2">' + esc(err.message) + '</div>';
+    });
+}
+
+document.getElementById('archiveSearch').addEventListener('input', debounce(function (event) {
+    archiveState.q = event.target.value.trim();
+    loadArchives(1);
+}, 350));
+
+document.getElementById('archiveStatus').addEventListener('change', function (event) {
+    archiveState.status = event.target.value;
+    loadArchives(1);
+});
+
+document.getElementById('archiveSort').addEventListener('change', function (event) {
+    archiveState.sort = event.target.value;
+    loadArchives(1);
+});
+
+document.getElementById('prevPage').addEventListener('click', function () {
+    if (archiveState.page > 1) loadArchives(archiveState.page - 1);
+});
+
+document.getElementById('nextPage').addEventListener('click', function () {
+    if (archiveState.page < archiveState.pages) loadArchives(archiveState.page + 1);
+});
+
+document.getElementById('checkDiskBtn').addEventListener('click', checkDisk);
+document.getElementById('archivesCsvBtn').addEventListener('click', function () {
+    window.location = '/api/export_archives.csv';
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadArchives(1);
+});
+</script>
+{% endblock %}

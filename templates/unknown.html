@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+
+{% block title %}Неизвестные — Firmware Manager{% endblock %}
+{% block active %}unknown{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Ручная сортировка «Неизвестных»</h4>
+    <div class="d-flex align-items-center gap-2">
+        <div class="text-secondary small">Всего неизвестных: <span id="unknownTotal">0</span></div>
+        <button class="btn btn-outline-info btn-sm" type="button" id="reparseUnknownBtn">
+            🔁 Переразобрать
+        </button>
+        <button class="btn btn-outline-warning btn-sm" type="button" id="reparseAllBtn"
+                title="Заново применить правила ко всем записям (кроме ручных правок)">
+            🔄 Пересобрать всё
+        </button>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex gap-2 flex-wrap align-items-end">
+            <div>
+                <label class="form-label form-label-sm">Выбрано</label>
+                <div><span class="badge text-bg-info" id="bulkCount">0</span></div>
+            </div>
+            <div>
+                <label class="form-label form-label-sm">Марка</label>
+                <input type="text" class="form-control form-control-sm" id="bulkBrand"
+                       list="brandOptionsList" placeholder="не менять">
+            </div>
+            <div>
+                <label class="form-label form-label-sm">Модель</label>
+                <input type="text" class="form-control form-control-sm" id="bulkModel"
+                       placeholder="не менять">
+            </div>
+            <div>
+                <label class="form-label form-label-sm">ЭБУ</label>
+                <input type="text" class="form-control form-control-sm" id="bulkEcu"
+                       placeholder="не менять">
+            </div>
+            <div class="d-flex gap-1">
+                <button class="btn btn-success btn-sm" type="button" id="bulkApplyBtn">
+                    Применить к выбранным
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="bulkSelectAllBtn">
+                    Выбрать все
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="bulkClearBtn">
+                    Снять
+                </button>
+            </div>
+        </div>
+        <div class="form-text text-secondary mt-1">
+            Пустые поля не меняются. Отметки сохраняются как ручные правки — переиндексация их не затрёт.
+        </div>
+    </div>
+</div>
+
+<datalist id="brandOptionsList"></datalist>
+<datalist id="brandList"></datalist>
+<datalist id="modelList"></datalist>
+<datalist id="engineList"></datalist>
+<datalist id="ecuList"></datalist>
+
+<div id="unknownList">
+    <div class="text-center text-secondary py-4">Загрузка…</div>
+</div>
+
+<div class="text-center mt-3" id="loadMoreWrap" hidden>
+    <button class="btn btn-outline-secondary" type="button" id="loadMoreBtn">Показать ещё</button>
+</div>
+
+<div class="empty-state d-none" id="unknownEmpty">
+    <div class="icon">✅</div>
+    <div>Все прошивки классифицированы!</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let unknownOffset = 0;
+const unknownLimit = 30;
+let brandOptions = [];
+let ecuOptions = [];
+let authorOptions = [];
+let brandCounts = [];
+let modelsByBrand = {};
+let allModels = [];
+let engines = [];
+
+function fillDatalist(id, items) {
+    const list = document.getElementById(id);
+    if (!list) return;
+    list.innerHTML = '';
+    (items || []).forEach(function (item) {
+        const value = (typeof item === 'string') ? item : item.value;
+        if (!value) return;
+        const option = document.createElement('option');
+        option.value = value;
+        if (typeof item !== 'string' && item.count) option.label = String(item.count);
+        list.appendChild(option);
+    });
+}
+
+function refreshModelDatalist(brand) {
+    const values = (brand && modelsByBrand[brand]) ? modelsByBrand[brand] : allModels;
+    fillDatalist('modelList', values);
+}
+
+function populateCardInputs(card, item) {
+    const brandInput = card.querySelector('.brand-input');
+    const modelInput = card.querySelector('.model-input');
+    brandInput.value = item.brand || '';
+    modelInput.value = item.model || '';
+    card.querySelector('.engine-input').value = item.engine || '';
+    card.querySelector('.ecu-input').value = item.ecu_name || '';
+    refreshModelDatalist(brandInput.value);
+    brandInput.addEventListener('input', function () {
+        refreshModelDatalist(brandInput.value);
+    });
+    modelInput.addEventListener('focus', function () {
+        refreshModelDatalist(brandInput.value);
+    });
+}
+
+function loadFilterOptions() {
+    return api('/api/filters').then(function (data) {
+        const f = data.filters || {};
+        brandOptions = f.brands || [];
+        ecuOptions = f.ecus || [];
+        authorOptions = f.authors || [];
+        brandCounts = f.brand_counts || [];
+        modelsByBrand = f.models_by_brand || {};
+        allModels = f.models || [];
+        engines = f.engines || [];
+        fillDatalist('brandList', brandCounts);
+        fillDatalist('engineList', engines);
+        fillDatalist('ecuList', ecuOptions);
+        refreshModelDatalist('');
+        const dl = document.getElementById('brandOptionsList');
+        if (dl) {
+            dl.innerHTML = '';
+            brandOptions.forEach(function (b) {
+                const opt = document.createElement('option');
+                opt.value = b;
+                dl.appendChild(opt);
+            });
+        }
+    }).catch(function () {});
+}
+
+function unknownCardHtml(item) {
+    const archiveIcon = item.archive_path ? '📦 ' : '';
+    let html = '';
+    html += '<div class="unknown-card" data-id="' + item.id + '">';
+    html += '<div class="d-flex justify-content-between align-items-start mb-2">';
+    html += '<div class="d-flex gap-2 align-items-start">';
+    html += '<input class="form-check-input bulk-check mt-1" type="checkbox" data-id="' + item.id + '">';
+    html += '<div>';
+    html += '<div class="fw-bold filename-cell">' + archiveIcon + esc(item.filename) + '</div>';
+    html += '<div class="meta">';
+    html += '<span>Размер: ' + fmtSize(item.file_size) + '</span>';
+    if (item.archive_path) html += '<span>Архив: ' + esc(item.archive_path.split(/[\\/]/).pop()) + '</span>';
+    if (item.ecu_name) html += '<span>ЭБУ: ' + esc(item.ecu_name) + '</span>';
+    if (item.ecu_id) html += '<span>ID: ' + esc(item.ecu_id) + '</span>';
+    if (item.engine) html += '<span>Двигатель: ' + esc(item.engine) + '</span>';
+    if (item.manual) html += '<span class="badge text-bg-info" title="Правка сделана вручную — переиндексация её не перезапишет">✎ ручная правка</span>';
+    if (item.year) html += '<span>Год: ' + esc(item.year) + '</span>';
+    if (item.description_file_path) html += '<span class="badge text-bg-success">Есть описание</span>';
+    html += '</div>';
+    html += '<div class="text-secondary small mt-1" style="word-break:break-all;">' + esc(item.file_path) + '</div>';
+    html += '</div>';
+    html += '</div>';
+    html += '<button class="btn btn-outline-secondary btn-sm" type="button" data-action="open" data-id="' + item.id + '">📁</button>';
+    html += '</div>';
+
+    html += '<div class="row g-2">';
+    html += '<div class="col-md-3">';
+    html += '<label class="form-label form-label-sm">Марка</label>';
+    html += '<input type="text" class="form-control form-control-sm brand-input" list="brandList" placeholder="можно не заполнять">';
+    html += '</div>';
+    html += '<div class="col-md-3">';
+    html += '<label class="form-label form-label-sm">Модель</label>';
+    html += '<input type="text" class="form-control form-control-sm model-input" list="modelList" placeholder="можно не заполнять">';
+    html += '</div>';
+    html += '<div class="col-md-2">';
+    html += '<label class="form-label form-label-sm">Двигатель</label>';
+    html += '<input type="text" class="form-control form-control-sm engine-input" list="engineList" placeholder="1.6">';
+    html += '</div>';
+    html += '<div class="col-md-2">';
+    html += '<label class="form-label form-label-sm">ЭБУ</label>';
+    html += '<input type="text" class="form-control form-control-sm ecu-input" list="ecuList" placeholder="М74">';
+    html += '</div>';
+    html += '<div class="col-md-2">';
+    html += '<label class="form-label form-label-sm">Автор</label>';
+    html += '<input type="text" class="form-control form-control-sm author-input" value="' + esc(item.author || '') + '" placeholder="Паулюс">';
+    html += '</div>';
+    html += '<div class="col-md-2">';
+    html += '<label class="form-label form-label-sm">Год</label>';
+    html += '<input type="number" class="form-control form-control-sm year-input" value="' + esc(item.year || '') + '" placeholder="2024">';
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="row g-2 mt-1">';
+    html += '<div class="col-md-3"><label class="form-label form-label-sm">ID блока</label>';
+    html += '<input type="text" class="form-control form-control-sm ecuid-input" value="' + esc(item.ecu_id || '') + '"></div>';
+    html += '<div class="col-md-3"><label class="form-label form-label-sm">Евро</label>';
+    html += '<input type="text" class="form-control form-control-sm euro-input" value="' + esc(item.eco_standard || '') + '" placeholder="E2"></div>';
+    html += '<div class="col-md-3"><label class="form-label form-label-sm">Версия</label>';
+    html += '<input type="text" class="form-control form-control-sm version-input" value="' + esc(item.version_tag || '') + '"></div>';
+    html += '<div class="col-md-3 d-flex align-items-end gap-2 flex-wrap">';
+    html += '<div class="form-check form-check-inline mb-0"><input class="form-check-input gbo-input" type="checkbox"' + (item.has_gbo ? ' checked' : '') + '><label class="form-check-label small">ГБО</label></div>';
+    html += '<div class="form-check form-check-inline mb-0"><input class="form-check-input tune-input" type="checkbox"' + (item.is_tune ? ' checked' : '') + '><label class="form-check-label small">Тюн</label></div>';
+    html += '<div class="form-check form-check-inline mb-0"><input class="form-check-input stock-input" type="checkbox"' + (item.is_stock ? ' checked' : '') + '><label class="form-check-label small">Stock</label></div>';
+    html += '<div class="form-check form-check-inline mb-0"><input class="form-check-input imm-input" type="checkbox"' + (item.imm_off ? ' checked' : '') + '><label class="form-check-label small">Иммо</label></div>';
+    html += '</div></div>';
+
+    html += '<div class="d-flex gap-2 mt-3">';
+    html += '<button class="btn btn-success btn-sm" type="button" data-action="save" data-id="' + item.id + '">💾 Сохранить</button>';
+    html += '<button class="btn btn-outline-secondary btn-sm" type="button" data-action="skip" data-id="' + item.id + '">⏭ Пропустить</button>';
+    html += '</div>';
+    html += '</div>';
+    return html;
+}
+
+function loadUnknown(append) {
+    if (!append) {
+        unknownOffset = 0;
+        document.getElementById('unknownList').innerHTML = '';
+    }
+    api('/api/unknown?limit=' + unknownLimit + '&offset=' + unknownOffset).then(function (data) {
+        const total = data.total || 0;
+        document.getElementById('unknownTotal').textContent = total;
+        const items = data.items || [];
+        if (!append && items.length === 0) {
+            document.getElementById('unknownEmpty').classList.remove('d-none');
+            document.getElementById('loadMoreWrap').hidden = true;
+            return;
+        }
+        const list = document.getElementById('unknownList');
+        items.forEach(function (item) {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = unknownCardHtml(item);
+            const card = wrapper.firstElementChild;
+            list.appendChild(card);
+            populateCardInputs(card, item);
+            bindCard(card, item);
+        });
+        unknownOffset += items.length;
+        const more = unknownOffset < total;
+        document.getElementById('loadMoreWrap').hidden = !more;
+        updateUnknownBadge();
+    }).catch(function (err) { toast(err.message, 'error'); });
+}
+
+function bindCard(card, item) {
+    card.querySelector('[data-action="open"]').addEventListener('click', function () {
+        api('/api/open_location?id=' + item.id).catch(function (e) { toast(e.message, 'error'); });
+    });
+    card.querySelector('[data-action="skip"]').addEventListener('click', function () {
+        card.style.transition = 'opacity .2s';
+        card.style.opacity = '0';
+        setTimeout(function () { card.remove(); }, 200);
+        toast('Пропущено', 'info');
+    });
+    card.querySelector('[data-action="save"]').addEventListener('click', function () {
+        const btn = this;
+        btn.disabled = true;
+        const payload = {
+            id: item.id,
+            brand: card.querySelector('.brand-input').value.trim() || null,
+            model: card.querySelector('.model-input').value.trim() || null,
+            engine: card.querySelector('.engine-input').value.trim() || null,
+            ecu_name: card.querySelector('.ecu-input').value.trim() || null,
+            ecu_id: card.querySelector('.ecuid-input').value.trim() || null,
+            author: card.querySelector('.author-input').value.trim() || null,
+            eco_standard: card.querySelector('.euro-input').value.trim() || null,
+            version_tag: card.querySelector('.version-input').value.trim() || null,
+            year: card.querySelector('.year-input').value.trim() || null,
+            has_gbo: card.querySelector('.gbo-input').checked,
+            is_tune: card.querySelector('.tune-input').checked,
+            is_stock: card.querySelector('.stock-input').checked,
+            imm_off: card.querySelector('.imm-input').checked,
+        };
+        api('/api/update_firmware', { method: 'POST', body: payload }).then(function () {
+            toast('Сохранено: ' + (payload.brand || '') + ' ' + (payload.model || ''), 'success');
+            card.style.transition = 'opacity .2s, transform .2s';
+            card.style.opacity = '0';
+            card.style.transform = 'translateX(20px)';
+            setTimeout(function () { card.remove(); updateUnknownBadge(); }, 220);
+        }).catch(function (err) {
+            toast(err.message, 'error');
+            btn.disabled = false;
+        });
+    });
+}
+
+// Массовая разметка
+function updateBulkCount() {
+    const count = document.querySelectorAll('.bulk-check:checked').length;
+    document.getElementById('bulkCount').textContent = count;
+}
+
+document.getElementById('unknownList').addEventListener('change', function (event) {
+    if (event.target.classList.contains('bulk-check')) updateBulkCount();
+});
+
+document.getElementById('bulkSelectAllBtn').addEventListener('click', function () {
+    document.querySelectorAll('.bulk-check').forEach(function (box) { box.checked = true; });
+    updateBulkCount();
+});
+
+document.getElementById('bulkClearBtn').addEventListener('click', function () {
+    document.querySelectorAll('.bulk-check').forEach(function (box) { box.checked = false; });
+    updateBulkCount();
+});
+
+document.getElementById('bulkApplyBtn').addEventListener('click', function () {
+    const ids = [];
+    document.querySelectorAll('.bulk-check:checked').forEach(function (box) {
+        ids.push(Number(box.getAttribute('data-id')));
+    });
+    if (!ids.length) {
+        toast('Ничего не выбрано — отметьте галочками', 'warning');
+        return;
+    }
+    const payload = {
+        ids: ids,
+        brand: document.getElementById('bulkBrand').value.trim(),
+        model: document.getElementById('bulkModel').value.trim(),
+        ecu_name: document.getElementById('bulkEcu').value.trim(),
+    };
+    if (!payload.brand && !payload.model && !payload.ecu_name) {
+        toast('Заполните марку, модель или ЭБУ', 'warning');
+        return;
+    }
+    const btn = this;
+    btn.disabled = true;
+    api('/api/bulk_update', { method: 'POST', body: payload }).then(function (data) {
+        toast('Обновлено записей: ' + (data.updated || 0), 'success');
+        ids.forEach(function (id) {
+            const box = document.querySelector('.bulk-check[data-id="' + id + '"]');
+            const card = box ? box.closest('.unknown-card') : null;
+            if (card) card.remove();
+        });
+        document.getElementById('bulkBrand').value = '';
+        document.getElementById('bulkModel').value = '';
+        document.getElementById('bulkEcu').value = '';
+        updateBulkCount();
+        updateUnknownBadge();
+    }).catch(function (err) {
+        toast(err.message, 'error');
+    }).finally(function () { btn.disabled = false; });
+});
+
+document.getElementById('reparseUnknownBtn').addEventListener('click', function () {
+    if (!confirm('Повторно применить правила парсера ко всем неизвестным?')) return;
+    const btn = this;
+    btn.disabled = true;
+    api('/api/reparse_unknowns', { method: 'POST', body: {} }).then(function (data) {
+        toast(
+            'Проверено: ' + (data.checked || 0) + ', новых: ' + (data.classified || 0) +
+            ', осталось: ' + (data.remaining || 0),
+            'success'
+        );
+        loadUnknown(false);
+    }).catch(function (err) {
+        toast(err.message, 'error');
+    }).finally(function () { btn.disabled = false; });
+});
+
+document.getElementById('reparseAllBtn').addEventListener('click', function () {
+    if (!confirm(
+        'Пересобрать метаданные всех записей текущими правилами? ' +
+        'Ручные правки не затрагиваются. Это может занять до пары минут.'
+    )) return;
+    const btn = this;
+    btn.disabled = true;
+    toast('Пересобираю метаданные…', 'info');
+    api('/api/reparse_all', { method: 'POST', body: {} }).then(function (data) {
+        toast(
+            'Проверено: ' + (data.checked || 0) + ', обновлено: ' + (data.updated || 0) +
+            ', неизвестных: ' + (data.remaining || 0),
+            'success'
+        );
+        loadUnknown(false);
+    }).catch(function (err) {
+        toast(err.message, 'error');
+    }).finally(function () { btn.disabled = false; });
+});
+
+document.getElementById('loadMoreBtn').addEventListener('click', function () {
+    loadUnknown(true);
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadFilterOptions().then(function () { loadUnknown(false); });
+});
+</script>
+{% endblock %}

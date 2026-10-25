@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Одинаковые файлы — Firmware Manager{% endblock %}
+{% block active %}similar{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0">Одинаковые файлы (по CRC32)</h4>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="crcRefreshBtn">⟳ Обновить</button>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="small">
+                Посчитано контрольных сумм:
+                <strong id="crcDone">0</strong> из <strong id="crcTotal">0</strong>
+            </div>
+            <div class="progress flex-grow-1" style="min-width:200px;max-width:420px">
+                <div id="crcBar" class="progress-bar bg-info" role="progressbar" style="width:0%"></div>
+            </div>
+            <button class="btn btn-outline-info btn-sm" type="button" id="crcStartBtn">Σ Посчитать CRC</button>
+            <button class="btn btn-outline-danger btn-sm" type="button" id="crcStopBtn" hidden>■ Остановить</button>
+            <span class="small text-secondary" id="crcMessage"></span>
+        </div>
+        <div class="form-text text-secondary mt-1">
+            Сначала считаются обычные файлы на диске, потом содержимое архивов — самое медленное.
+            Расчёт можно остановить и продолжить позже: уже посчитанные суммы хранятся в базе.
+        </div>
+    </div>
+</div>
+
+<div class="row g-2 mb-3">
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-info" id="sumGroups">0</div>
+            <div class="label">Групп одинаковых файлов</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-success" id="sumFiles">0</div>
+            <div class="label">Проверено файлов</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-secondary" id="sumSize">0</div>
+            <div class="label">Объём проверенного</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-warning" id="sumProgress">0%</div>
+            <div class="label">Покрытие базы</div>
+        </div>
+    </div>
+</div>
+
+<div id="similarList">
+    <div class="text-center text-secondary py-4">Загрузка…</div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mt-3">
+    <div class="small text-secondary" id="similarInfo"></div>
+    <div>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="simPrev">← Назад</button>
+        <span class="mx-2 small" id="simPage"></span>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="simNext">Вперёд →</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const simState = { page: 1, pages: 1 };
+let crcTimer = null;
+
+function groupHtml(group) {
+    const members = group.members || [];
+    let html = '<div class="card mb-2">';
+    html += '<div class="card-header py-2 d-flex justify-content-between align-items-center">';
+    html += '<div><code class="text-warning">' + esc(group.crc32) + '</code>' +
+        ' <span class="badge text-bg-success ms-1">' + esc(group.copies) + ' файлов</span></div>';
+    html += '</div>';
+    html += '<div class="table-responsive"><table class="table table-sm mb-0"><tbody>';
+    members.forEach(function (member) {
+        html += '<tr><td class="small" style="word-break:break-all">' + esc(member.file_path) + '</td>' +
+            '<td class="small text-secondary" style="width:140px">' +
+            esc([member.brand, member.model].filter(Boolean).join(' ') || '—') + '</td>' +
+            '<td class="small text-end" style="width:90px">' + fmtSize(member.file_size) + '</td>' +
+            '<td class="text-end" style="width:60px">' +
+            '<button class="btn btn-outline-secondary btn-sm" type="button" data-open="' + member.id + '">📁</button>' +
+            '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+    return html;
+}
+
+function renderSimilar(data) {
+    const summary = data.summary || {};
+    document.getElementById('sumGroups').textContent = summary.groups || 0;
+    document.getElementById('sumFiles').textContent = summary.checked_files || 0;
+    document.getElementById('sumSize').textContent = fmtSize(summary.checked_size || 0);
+    const total = summary.total_files || 0;
+    const done = summary.done || 0;
+    document.getElementById('sumProgress').textContent =
+        (total ? Math.round(done * 100 / total) : 0) + '%';
+    document.getElementById('similarInfo').textContent = 'Групп: ' + (data.total || 0);
+    document.getElementById('simPage').textContent = (data.page || 1) + ' / ' + (data.pages || 1);
+
+    const list = document.getElementById('similarList');
+    const items = data.items || [];
+    if (!items.length) {
+        list.innerHTML = '<div class="empty-state"><div class="icon">🧮</div>' +
+            '<div>Пока нет файлов с одинаковыми суммами.</div>' +
+            '<div class="small text-secondary mt-2">Нажмите «Σ Посчитать CRC» — начнём с обычных файлов.</div></div>';
+    } else {
+        list.innerHTML = items.map(groupHtml).join('');
+        list.querySelectorAll('button[data-open]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                api('/api/open_location?id=' + button.getAttribute('data-open'))
+                    .catch(function (err) { toast(err.message, 'error'); });
+            });
+        });
+    }
+    simState.page = data.page || 1;
+    simState.pages = data.pages || 1;
+    document.getElementById('simPrev').disabled = simState.page <= 1;
+    document.getElementById('simNext').disabled = simState.page >= simState.pages;
+}
+
+function loadSimilar(page) {
+    return api('/api/similar?page=' + (page || 1) + '&per_page=25')
+        .then(renderSimilar)
+        .catch(function (err) { toast(err.message, 'error'); });
+}
+
+function pollCrc() {
+    api('/api/crc/status').then(function (data) {
+        const crc = data.crc || {};
+        const total = crc.total || 0;
+        const done = crc.done || 0;
+        document.getElementById('crcDone').textContent = done;
+        document.getElementById('crcTotal').textContent = total;
+        document.getElementById('crcBar').style.width =
+            (total ? Math.min(100, done * 100 / total) : 0) + '%';
+        document.getElementById('crcMessage').textContent = crc.message || '';
+        document.getElementById('crcStartBtn').disabled = !!crc.running;
+        document.getElementById('crcStopBtn').hidden = !crc.running;
+        if (!crc.running && crcTimer) {
+            clearInterval(crcTimer);
+            crcTimer = null;
+            loadSimilar(simState.page);
+        }
+    }).catch(function () {});
+}
+
+document.getElementById('crcStartBtn').addEventListener('click', function () {
+    api('/api/crc/start', { method: 'POST' }).then(function () {
+        toast('Расчёт CRC запущен', 'info');
+        if (crcTimer) clearInterval(crcTimer);
+        crcTimer = setInterval(pollCrc, 2000);
+        pollCrc();
+    }).catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.getElementById('crcStopBtn').addEventListener('click', function () {
+    api('/api/crc/stop', { method: 'POST' }).then(function () {
+        toast('Останавливаю…', 'warning');
+    }).catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.getElementById('crcRefreshBtn').addEventListener('click', function () {
+    loadSimilar(simState.page);
+});
+
+document.getElementById('simPrev').addEventListener('click', function () {
+    if (simState.page > 1) loadSimilar(simState.page - 1);
+});
+
+document.getElementById('simNext').addEventListener('click', function () {
+    if (simState.page < simState.pages) loadSimilar(simState.page + 1);
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadSimilar(1);
+    pollCrc();
+    crcTimer = setInterval(pollCrc, 4000);
+});
+</script>
+{% endblock %}

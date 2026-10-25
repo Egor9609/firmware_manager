@@ -1,0 +1,174 @@
+{# Блок индексации: кнопки, прогресс, настройки корневой папки.
+   Подключается на странице «Архивы»; после завершения вызывает
+   window.onIndexFinished(), если страница его определила. #}
+<div class="d-flex gap-2 flex-wrap justify-content-end mb-2">
+    <button class="btn btn-outline-secondary btn-sm" type="button" id="settingsToggleBtn">⚙ Настройки</button>
+    <button class="btn btn-outline-info btn-sm" type="button" id="reparseBtn"
+            title="Заново разобрать имена и пути из базы — без открытия архивов">🔤 Переразобрать имена</button>
+    <button class="btn btn-success btn-sm" type="button" id="reindexBtn">⟳ Переиндексировать</button>
+</div>
+
+<div class="card mb-3" id="scanPanel" hidden>
+    <div class="card-body py-2">
+        <div class="d-flex justify-content-between small mb-1">
+            <span id="scanMessage">Подготовка…</span>
+            <span id="scanCounter" class="text-secondary"></span>
+        </div>
+        <div class="progress">
+            <div id="scanBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                 role="progressbar" style="width: 0%"></div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3" id="settingsCard" hidden>
+    <div class="card-header py-2"><strong>Настройки индексации</strong></div>
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-8">
+                <label class="form-label form-label-sm">Корневая папка с прошивками</label>
+                <input type="text" id="rootPathInput" class="form-control form-control-sm"
+                       placeholder="D:\Firmware или C:\Users\...\Firmware">
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button class="btn btn-primary btn-sm" type="button" id="saveRootBtn">Сохранить</button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="openRootBtn">Открыть папку</button>
+            </div>
+        </div>
+        <div class="form-text text-secondary mt-1">
+            Укажите папку, внутри которой лежат прошивки и архивы. Нажмите «Переиндексировать» после сохранения.
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const scanPanel = document.getElementById('scanPanel');
+    const scanBar = document.getElementById('scanBar');
+    const scanMessage = document.getElementById('scanMessage');
+    const scanCounter = document.getElementById('scanCounter');
+    const settingsCard = document.getElementById('settingsCard');
+    let scanTimer = null;
+
+    function rootValue() {
+        return document.getElementById('rootPathInput').value.trim();
+    }
+
+    function loadRootPath() {
+        api('/api/root').then(function (data) {
+            document.getElementById('rootPathInput').value = data.root || '';
+        }).catch(function () {});
+    }
+
+    function afterScan() {
+        updateUnknownBadge();
+        if (typeof window.onIndexFinished === 'function') window.onIndexFinished();
+    }
+
+    function pollScan() {
+        api('/api/reindex/status').then(function (data) {
+            const s = data.scan || {};
+            scanMessage.textContent = s.message || '…';
+            const done = s.done || 0;
+            const total = s.total || 0;
+            if (total > 0 && done === 0) {
+                // Ни один архив ещё не закончен: показываем «идёт работа»,
+                // а не застывшие 0% — большие архивы разбираются минутами.
+                scanBar.style.width = '100%';
+                scanCounter.textContent = '0 / ' + total + ' — идёт разбор';
+            } else if (total > 0) {
+                scanBar.style.width = Math.min(100, (done / total) * 100) + '%';
+                scanCounter.textContent = done + ' / ' + total;
+            } else {
+                scanBar.style.width = '30%';
+                scanCounter.textContent = '';
+            }
+            if (!s.running) {
+                clearInterval(scanTimer);
+                scanTimer = null;
+                scanBar.style.width = '100%';
+                scanBar.classList.remove('progress-bar-animated');
+                if (s.error) {
+                    toast('Ошибка индексации: ' + s.error, 'error');
+                } else {
+                    toast('Индексация завершена', 'success');
+                    afterScan();
+                }
+                setTimeout(function () { scanPanel.hidden = true; }, 3000);
+            }
+        }).catch(function () {});
+    }
+
+    function startScan() {
+        api('/api/reindex', { method: 'POST', body: { root: rootValue(), max_workers: 6 } })
+            .then(function () {
+                scanPanel.hidden = false;
+                scanMessage.textContent = 'Подготовка…';
+                scanBar.style.width = '0%';
+                scanBar.classList.add('progress-bar-animated');
+                if (scanTimer) clearInterval(scanTimer);
+                scanTimer = setInterval(pollScan, 1000);
+            })
+            .catch(function (err) { toast(err.message, 'error'); });
+    }
+
+    document.getElementById('settingsToggleBtn').addEventListener('click', function () {
+        settingsCard.hidden = !settingsCard.hidden;
+        if (!settingsCard.hidden) loadRootPath();
+    });
+
+    document.getElementById('saveRootBtn').addEventListener('click', function () {
+        api('/api/root', { method: 'POST', body: { root: rootValue() } })
+            .then(function () { toast('Папка сохранена', 'success'); loadRootLabel(); })
+            .catch(function (err) { toast(err.message, 'error'); });
+    });
+
+    document.getElementById('openRootBtn').addEventListener('click', function () {
+        const root = rootValue();
+        if (!root) return;
+        api('/api/open_location?path=' + encodeURIComponent(root))
+            .catch(function (err) { toast(err.message, 'error'); });
+    });
+
+    document.getElementById('reindexBtn').addEventListener('click', function () {
+        if (!rootValue()) {
+            loadRootPath();
+            settingsCard.hidden = false;
+            toast('Сначала укажите корневую папку', 'warning');
+            return;
+        }
+        startScan();
+    });
+
+    document.getElementById('reparseBtn').addEventListener('click', function () {
+        const btn = this;
+        btn.disabled = true;
+        scanPanel.hidden = false;
+        scanMessage.textContent = 'Переразбор имён по базе…';
+        scanBar.style.width = '100%';
+        toast('Переразбираю имена и пути (архивы не открываются)', 'info');
+        api('/api/reparse', { method: 'POST' }).then(function (data) {
+            const r = data.reparse || {};
+            toast('Готово: обновлено ' + (r.changed || 0) + ', новых классифицированных ' +
+                (r.newly_classified || 0) + ' за ' + (r.duration || 0) + ' с', 'success');
+            afterScan();
+            scanPanel.hidden = true;
+        }).catch(function (err) {
+            toast(err.message, 'error');
+            scanPanel.hidden = true;
+        }).finally(function () { btn.disabled = false; });
+    });
+
+    loadRootPath();
+
+    // Если индексация уже идёт — подхватываем прогресс при открытии страницы.
+    api('/api/reindex/status').then(function (data) {
+        const s = data.scan || {};
+        if (s.running) {
+            scanPanel.hidden = false;
+            if (scanTimer) clearInterval(scanTimer);
+            scanTimer = setInterval(pollScan, 1000);
+        }
+    }).catch(function () {});
+})();
+</script>

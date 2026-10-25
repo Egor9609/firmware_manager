@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ru" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Firmware Manager{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom border-secondary sticky-top">
+    <div class="container-fluid px-3">
+        <a class="navbar-brand fw-bold" href="/">⚡ Firmware Manager</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNav">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item"><a class="nav-link {% if active == 'index' %}active{% endif %}" href="/">Поиск</a></li>
+                <li class="nav-item"><a class="nav-link" href="/?favorites=1">⭐ Избранное</a></li>
+                <li class="nav-item">
+                    <a class="nav-link {% if active == 'unknown' %}active{% endif %}" href="/unknown">
+                        Неизвестные <span id="unknownBadge" class="badge text-bg-warning ms-1">0</span>
+                    </a>
+                </li>
+                <li class="nav-item"><a class="nav-link {% if active == 'archives' %}active{% endif %}" href="/archives">Архивы</a></li>
+                <li class="nav-item"><a class="nav-link {% if active == 'passwords' %}active{% endif %}" href="/passwords">Пароли</a></li>
+                <li class="nav-item"><a class="nav-link {% if active == 'duplicates' %}active{% endif %}" href="/duplicates">Совпадения</a></li>
+                <li class="nav-item"><a class="nav-link {% if active == 'similar' %}active{% endif %}" href="/similar">Одинаковые файлы</a></li>
+                <li class="nav-item"><a class="nav-link {% if active == 'workspace' %}active{% endif %}" href="/workspace">Рабочая папка</a></li>
+                <li class="nav-item">
+                    <button class="nav-link btn btn-link text-light" type="button" data-bs-toggle="modal" data-bs-target="#statsModal">Статистика</button>
+                </li>
+            </ul>
+            <span class="navbar-text small text-secondary d-none d-lg-inline me-2" id="rootLabel"></span>
+        </div>
+    </div>
+</nav>
+
+<main class="container-fluid px-3 py-3">
+    {% block content %}{% endblock %}
+</main>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+
+<div class="modal fade" id="statsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Статистика библиотеки</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="statsBody">
+                <div class="text-center py-4 text-secondary">Загрузка…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+/* Общие хелперы */
+function esc(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function fmtSize(bytes) {
+    bytes = Number(bytes) || 0;
+    if (bytes < 1024) return bytes + ' Б';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' ГБ';
+}
+
+function fmtDate(value) {
+    if (!value) return '—';
+    if (typeof value === 'number') {
+        return new Date(value * 1000).toLocaleString('ru-RU');
+    }
+    try {
+        return new Date(value).toLocaleString('ru-RU');
+    } catch (e) {
+        return String(value);
+    }
+}
+
+async function api(url, options) {
+    options = options || {};
+    const opts = Object.assign({}, options);
+    if (opts.body && typeof opts.body !== 'string') {
+        opts.headers = Object.assign({'Content-Type': 'application/json'}, opts.headers || {});
+        opts.body = JSON.stringify(opts.body);
+    }
+    const response = await fetch(url, opts);
+    let data = null;
+    try { data = await response.json(); } catch (e) { /* ignore */ }
+    if (!response.ok || (data && data.ok === false)) {
+        throw new Error((data && data.error) || ('HTTP ' + response.status));
+    }
+    return data || {};
+}
+
+function toast(message, type) {
+    type = type || 'success';
+    const container = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = 'toast align-items-center text-bg-' + (type === 'error' ? 'danger' : type === 'warning' ? 'warning' : 'success') + ' border-0 show';
+    el.setAttribute('role', 'alert');
+    el.innerHTML =
+        '<div class="d-flex">' +
+        '<div class="toast-body">' + esc(message) + '</div>' +
+        '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>' +
+        '</div>';
+    container.appendChild(el);
+    setTimeout(function () { el.remove(); }, 4500);
+}
+
+function debounce(fn, ms) {
+    let timer = null;
+    return function () {
+        const args = arguments;
+        clearTimeout(timer);
+        timer = setTimeout(function () { fn.apply(null, args); }, ms);
+    };
+}
+
+function updateUnknownBadge() {
+    fetch('/api/unknown?count_only=1')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data && data.ok !== false) {
+                const badge = document.getElementById('unknownBadge');
+                if (badge) badge.textContent = data.total || 0;
+            }
+        })
+        .catch(function () {});
+}
+
+function loadRootLabel() {
+    fetch('/api/root').then(function (r) { return r.json(); })
+        .then(function (data) {
+            const label = document.getElementById('rootLabel');
+            if (label && data && data.root) {
+                label.textContent = 'Корень: ' + data.root;
+            }
+        }).catch(function () {});
+}
+
+function renderStats(data) {
+    const s = (data && data.statistics) || {};
+    const brands = s.brands || [];
+    const ecus = s.ecus || [];
+    const authors = s.authors || [];
+    const years = s.years || [];
+    let html = '';
+    html += '<div class="row g-2 mb-3">';
+    html += statCard(s.total || 0, 'Всего прошивок', 'primary');
+    html += statCard(s.classified || 0, 'Классифицировано', 'success');
+    html += statCard(s.unknown || 0, 'Неизвестные', 'warning');
+    html += statCard(s.archives || 0, 'Архивов', 'info');
+    html += '</div>';
+    html += '<div class="row g-2 mb-3">';
+    html += statCard(fmtSize(s.total_size || 0), 'Объём', 'secondary');
+    html += statCard(s.tune || 0, 'Тюнинг', 'warning');
+    html += statCard(s.gbo || 0, 'ГБО', 'info');
+    html += statCard(s.stock || 0, 'Заводские', 'secondary');
+    html += '</div>';
+    html += '<div class="row g-3">';
+    html += topList('Топ марок', brands, 'brand');
+    html += topList('Топ ЭБУ', ecus, 'ecu_name');
+    html += topList('Топ авторов', authors, 'author');
+    html += '</div>';
+    if (years.length) {
+        html += '<div class="mt-3"><h6 class="text-secondary">По годам</h6>';
+        html += '<div class="d-flex flex-wrap gap-1">';
+        years.forEach(function (y) {
+            html += '<span class="badge text-bg-dark border border-secondary">' +
+                esc(y.year) + ': ' + esc(y.count) + '</span>';
+        });
+        html += '</div></div>';
+    }
+    if (s.last_scan) {
+        html += '<div class="mt-3 small text-secondary">Последнее индексирование: ' +
+            esc(s.last_scan) + ' — ' + esc(s.last_scan_stats || '') + '</div>';
+    }
+    if (s.last_reparse) {
+        html += '<div class="small text-secondary">Последний переразбор неизвестных: ' +
+            esc(s.last_reparse) + '</div>';
+    }
+    html += '<div class="mt-2 small text-secondary">Рабочая папка: ' + esc(s.workspace || '') + '</div>';
+    html += '<div class="small text-secondary">Корень: ' + esc(s.root || 'не задан') + '</div>';
+    document.getElementById('statsBody').innerHTML = html;
+}
+
+function statCard(value, label, color) {
+    return '<div class="col-6 col-md-3">' +
+        '<div class="stat-card">' +
+        '<div class="value text-' + color + '">' + esc(value) + '</div>' +
+        '<div class="label">' + esc(label) + '</div>' +
+        '</div></div>';
+}
+
+function topList(title, rows, field) {
+    let html = '<div class="col-md-4"><div class="card"><div class="card-header py-2"><strong>' + esc(title) + '</strong></div><div class="card-body p-2">';
+    if (!rows.length) {
+        html += '<div class="text-secondary small">Нет данных</div>';
+    } else {
+        html += '<ul class="list-group list-group-flush">';
+        rows.forEach(function (row) {
+            html += '<li class="list-group-item bg-transparent d-flex justify-content-between py-1 px-0">' +
+                '<span class="text-truncate" style="max-width:70%">' + esc(row[field] || '—') + '</span>' +
+                '<span class="badge text-bg-secondary">' + esc(row.count) + '</span></li>';
+        });
+        html += '</ul>';
+    }
+    html += '</div></div></div>';
+    return html;
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    updateUnknownBadge();
+    loadRootLabel();
+    const statsModal = document.getElementById('statsModal');
+    if (statsModal) {
+        statsModal.addEventListener('show.bs.modal', function () {
+            document.getElementById('statsBody').innerHTML =
+                '<div class="text-center py-4 text-secondary">Загрузка…</div>';
+            api('/api/statistics').then(function (data) {
+                renderStats(data);
+            }).catch(function (err) {
+                document.getElementById('statsBody').innerHTML =
+                    '<div class="text-danger">Ошибка: ' + esc(err.message) + '</div>';
+            });
+        });
+    }
+});
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,372 @@
+{% extends "base.html" %}
+
+{% block title %}Совпадения по имени — Firmware Manager{% endblock %}
+{% block active %}duplicates{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0">Одинаковые имя и размер</h4>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="recountBtn">⟳ Пересчитать</button>
+    </div>
+</div>
+
+<div class="row g-2 mb-3">
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-info" id="sumGroups">0</div>
+            <div class="label">Групп</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-warning" id="sumCopies">0</div>
+            <div class="label">Файлов в группах</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-danger" id="sumExtra">0</div>
+            <div class="label">Дубликатов по имени</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="value text-secondary" id="sumSize">0</div>
+            <div class="label">Объём</div>
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-warning py-2 small">
+    <strong>Это ещё не копии.</strong> Совпадают только имя и размер. Один и тот же <code>.bin</code>
+    часто разложен по десяткам папок под разные ГБО, распиновку и авто — содержимое при этом
+    <em>разное</em>. Нажмите <strong>«Σ Сверить суммы»</strong> у группы: посчитаю CRC32 по первым
+    20 файлам и покажу, байт-в-байт они одинаковы или это разные прошивки. Кнопка
+    <strong>«⬇ Выгрузить»</strong> складывает все файлы группы в папку рабочего каталога —
+    дальше можно сравнивать чем угодно.
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label form-label-sm">Поиск по имени файла</label>
+                <input type="text" class="form-control form-control-sm" id="dupSearch"
+                       placeholder="I484GF02, M74…">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label form-label-sm">Сортировка</label>
+                <select class="form-select form-select-sm" id="dupSort">
+                    <option value="copies">По числу файлов</option>
+                    <option value="name">По имени</option>
+                    <option value="size">По размеру</option>
+                </select>
+            </div>
+            <div class="col-md-3 small text-secondary" id="dupInfo"></div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-2" id="dupSelectionBar" hidden>
+    <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+        <span>Выбрано: <span class="badge text-bg-info" id="dupSelectionCount">0</span></span>
+        <button class="btn btn-outline-info btn-sm" type="button" id="dupCrcBtn">Σ Проверить CRC32</button>
+        <button class="btn btn-success btn-sm" type="button" id="dupCopyBtn">⬇ Скопировать в рабочую папку</button>
+        <button class="btn btn-outline-success btn-sm" type="button" id="dupCsvBtn">⬇ CSV</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="dupClearBtn">Снять</button>
+    </div>
+</div>
+
+<div class="modal fade" id="dupCrcModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Контрольные суммы выбранных</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="dupCrcBody"></div>
+        </div>
+    </div>
+</div>
+
+<div id="dupList">
+    <div class="text-center text-secondary py-4">Загрузка…</div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mt-3">
+    <div></div>
+    <div>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="dupPrev">← Назад</button>
+        <span class="mx-2 small" id="dupPage"></span>
+        <button class="btn btn-outline-secondary btn-sm" type="button" id="dupNext">Вперёд →</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dupState = { page: 1, pages: 1, q: '', sort: 'copies' };
+const dupSelection = new Set();
+
+function updateDupSelection() {
+    document.getElementById('dupSelectionCount').textContent = dupSelection.size;
+    document.getElementById('dupSelectionBar').hidden = dupSelection.size === 0;
+}
+
+function saveBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
+}
+
+function downloadCsv(url, body, name) {
+    if (!body) { window.location = url; return; }
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }).then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.blob();
+    }).then(function (blob) {
+        saveBlob(blob, name || 'firmware.csv');
+        toast('CSV сохранён', 'success');
+    }).catch(function (err) { toast(err.message, 'error'); });
+}
+
+document.getElementById('dupList').addEventListener('change', function (event) {
+    const box = event.target;
+    if (!box.classList || !box.classList.contains('member-check')) return;
+    const id = Number(box.getAttribute('data-id'));
+    if (box.checked) dupSelection.add(id); else dupSelection.delete(id);
+    updateDupSelection();
+});
+
+document.getElementById('dupClearBtn').addEventListener('click', function () {
+    dupSelection.clear();
+    document.querySelectorAll('.member-check').forEach(function (box) { box.checked = false; });
+    updateDupSelection();
+});
+
+document.getElementById('dupCrcBtn').addEventListener('click', function () {
+    if (!dupSelection.size) { toast('Ничего не выбрано', 'warning'); return; }
+    const body = document.getElementById('dupCrcBody');
+    const modal = new bootstrap.Modal(document.getElementById('dupCrcModal'));
+    body.innerHTML = '<div class="text-secondary py-3">Считаю суммы…</div>';
+    modal.show();
+    api('/api/batch_checksums', { method: 'POST', body: { ids: Array.from(dupSelection) } })
+        .then(function (data) {
+            const items = data.items || [];
+            let html = data.identical
+                ? '<div class="alert alert-success py-2">Все файлы байт-в-байт одинаковы</div>'
+                : '<div class="alert alert-warning py-2">Уникальных сумм: ' + data.unique +
+                  ' из ' + items.length + '</div>';
+            html += '<table class="table table-sm mb-0"><thead><tr class="text-secondary small">' +
+                '<th>Файл</th><th style="width:100px">CRC32</th>' +
+                '<th class="text-end" style="width:90px">Размер</th></tr></thead><tbody>';
+            items.forEach(function (item) {
+                html += '<tr><td class="small" style="word-break:break-all">' + esc(item.filename) + '</td>' +
+                    '<td class="small">' +
+                    (item.error ? '<span class="text-danger">ошибка</span>' : esc(item.crc32)) +
+                    '</td><td class="small text-end">' + fmtSize(item.size) + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            body.innerHTML = html;
+        })
+        .catch(function (err) {
+            body.innerHTML = '<div class="text-danger">' + esc(err.message) + '</div>';
+        });
+});
+
+document.getElementById('dupCopyBtn').addEventListener('click', function () {
+    if (!dupSelection.size) { toast('Ничего не выбрано', 'warning'); return; }
+    api('/api/batch_copy', { method: 'POST', body: { ids: Array.from(dupSelection) } })
+        .then(function (data) {
+            toast('Скопировано файлов: ' + data.total, 'success');
+            if ((data.errors || []).length) toast('Ошибок: ' + data.errors.length, 'warning');
+        })
+        .catch(function (err) { toast(err.message, 'error'); });
+});
+
+document.getElementById('dupCsvBtn').addEventListener('click', function () {
+    if (!dupSelection.size) { toast('Ничего не выбрано', 'warning'); return; }
+    downloadCsv('/api/export.csv', { ids: Array.from(dupSelection) }, 'firmware-selected.csv');
+});
+
+function groupHtml(group) {
+    const members = group.members || [];
+    let html = '<div class="card mb-2 dup-group" data-group="' + esc(group.group_key) + '">';
+    html += '<div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">';
+    html += '<div><strong>' + esc(group.name) + '</strong>';
+    html += ' <span class="badge text-bg-warning ms-1">' + esc(group.copies) + ' шт.</span>';
+    html += ' <span class="text-secondary small ms-2">' + fmtSize(group.size) + '</span></div>';
+    html += '<div class="d-flex gap-1">';
+    html += '<button class="btn btn-outline-info btn-sm" type="button" data-act="verify">Σ Сверить суммы</button>';
+    html += '<button class="btn btn-outline-secondary btn-sm" type="button" data-act="export">⬇ Выгрузить</button>';
+    html += '</div></div>';
+    html += '<div class="table-responsive"><table class="table table-sm mb-0">';
+    html += '<thead><tr class="text-secondary small"><th style="width:32px"></th><th>Путь</th><th>Марка</th>' +
+        '<th>Модель</th><th>ЭБУ</th><th style="width:110px">CRC32</th><th></th></tr></thead><tbody>';
+    members.forEach(function (member) {
+        html += '<tr data-member="' + member.id + '">' +
+            '<td><input class="form-check-input member-check" type="checkbox" data-id="' + member.id + '"' +
+            (dupSelection.has(member.id) ? ' checked' : '') + '></td>' +
+            '<td class="small" style="word-break:break-all">' + esc(member.file_path) + '</td>' +
+            '<td class="small text-secondary">' + esc(member.brand || '—') + '</td>' +
+            '<td class="small text-secondary">' + esc(member.model || '—') + '</td>' +
+            '<td class="small text-secondary">' + esc(member.ecu_name || '—') + '</td>' +
+            '<td class="small crc-cell text-secondary">—</td>' +
+            '<td class="text-end"><button class="btn btn-outline-secondary btn-sm" ' +
+            'type="button" data-open="' + member.id + '" title="Открыть в проводнике">📁</button></td>' +
+            '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div class="verify-result small px-2 py-1"></div>';
+    html += '</div>';
+    return html;
+}
+
+function renderDuplicates(data) {
+    const summary = data.summary || {};
+    document.getElementById('sumGroups').textContent = summary.groups || 0;
+    document.getElementById('sumCopies').textContent = summary.copies || 0;
+    document.getElementById('sumExtra').textContent = summary.extra || 0;
+    document.getElementById('sumSize').textContent = fmtSize(summary.size || 0);
+    document.getElementById('dupInfo').textContent = 'Групп: ' + (data.total || 0);
+    document.getElementById('dupPage').textContent =
+        (data.page || 1) + ' / ' + (data.pages || 1);
+
+    const list = document.getElementById('dupList');
+    const items = data.items || [];
+    if (!items.length) {
+        list.innerHTML = '<div class="empty-state"><div class="icon">✨</div>' +
+            '<div>Совпадений по имени и размеру нет</div></div>';
+    } else {
+        list.innerHTML = items.map(groupHtml).join('');
+        list.querySelectorAll('.dup-group').forEach(function (card) {
+            card.querySelectorAll('button[data-open]').forEach(function (button) {
+                button.addEventListener('click', function () {
+                    api('/api/open_location?id=' + button.getAttribute('data-open'))
+                        .catch(function (err) { toast(err.message, 'error'); });
+                });
+            });
+            const verifyBtn = card.querySelector('button[data-act="verify"]');
+            verifyBtn.addEventListener('click', function () { verifyGroup(card, verifyBtn); });
+            const exportBtn = card.querySelector('button[data-act="export"]');
+            exportBtn.addEventListener('click', function () { exportGroup(card, exportBtn); });
+        });
+    }
+    dupState.page = data.page || 1;
+    dupState.pages = data.pages || 1;
+    document.getElementById('dupPrev').disabled = dupState.page <= 1;
+    document.getElementById('dupNext').disabled = dupState.page >= dupState.pages;
+    updateDupSelection();
+}
+
+function verifyGroup(card, button) {
+    const key = card.getAttribute('data-group');
+    const box = card.querySelector('.verify-result');
+    button.disabled = true;
+    box.innerHTML = '<span class="text-secondary">Считаю контрольные суммы…</span>';
+    api('/api/duplicates/verify', { method: 'POST', body: { group_key: key } })
+        .then(function (data) {
+            (data.items || []).forEach(function (item) {
+                const row = card.querySelector('tr[data-member="' + item.id + '"]');
+                if (!row) return;
+                const cell = row.querySelector('.crc-cell');
+                if (item.error) {
+                    cell.innerHTML = '<span class="text-danger" title="' + esc(item.error) +
+                        '">ошибка</span>';
+                } else {
+                    cell.textContent = item.crc32;
+                    cell.classList.remove('text-secondary');
+                }
+            });
+            if (data.identical) {
+                box.innerHTML = '<span class="badge text-bg-success">байт-в-байт одинаковы</span> ' +
+                    'проверено ' + data.checked + ', сумма ' + data.crcs[0];
+            } else {
+                box.innerHTML = '<span class="badge text-bg-warning">разные прошивки</span> ' +
+                    'проверено ' + data.checked + ', уникальных сумм: ' + data.unique;
+            }
+            if (data.truncated) {
+                box.innerHTML += ' <span class="text-secondary">(проверено ' + data.checked +
+                    ' из ' + data.total + ', остальные — кнопкой «Выгрузить»)</span>';
+            }
+        })
+        .catch(function (err) {
+            box.innerHTML = '<span class="text-danger">' + esc(err.message) + '</span>';
+        })
+        .finally(function () { button.disabled = false; });
+}
+
+function exportGroup(card, button) {
+    const key = card.getAttribute('data-group');
+    const box = card.querySelector('.verify-result');
+    button.disabled = true;
+    box.innerHTML = '<span class="text-secondary">Выгружаю файлы в рабочую папку…</span>';
+    api('/api/duplicates/export', { method: 'POST', body: { group_key: key } })
+        .then(function (data) {
+            box.innerHTML = '<span class="badge text-bg-success">выгружено ' +
+                esc(data.exported) + '</span> <span class="text-secondary">' +
+                esc(data.folder) + '</span>';
+            toast('Файлы выгружены: ' + data.folder, 'success');
+        })
+        .catch(function (err) {
+            box.innerHTML = '<span class="text-danger">' + esc(err.message) + '</span>';
+        })
+        .finally(function () { button.disabled = false; });
+}
+
+function loadDuplicates(page) {
+    const params = new URLSearchParams({
+        page: page || 1,
+        per_page: 25,
+        sort: dupState.sort,
+    });
+    if (dupState.q) params.set('q', dupState.q);
+    return api('/api/duplicates?' + params.toString())
+        .then(renderDuplicates)
+        .catch(function (err) { toast(err.message, 'error'); });
+}
+
+document.getElementById('dupSearch').addEventListener('input', debounce(function (event) {
+    dupState.q = event.target.value.trim();
+    loadDuplicates(1);
+}, 350));
+
+document.getElementById('dupSort').addEventListener('change', function (event) {
+    dupState.sort = event.target.value;
+    loadDuplicates(1);
+});
+
+document.getElementById('dupPrev').addEventListener('click', function () {
+    if (dupState.page > 1) loadDuplicates(dupState.page - 1);
+});
+
+document.getElementById('dupNext').addEventListener('click', function () {
+    if (dupState.page < dupState.pages) loadDuplicates(dupState.page + 1);
+});
+
+document.getElementById('recountBtn').addEventListener('click', function () {
+    const btn = this;
+    btn.disabled = true;
+    api('/api/duplicates/recount', { method: 'POST' }).then(function (data) {
+        toast('Групп: ' + (data.groups || 0) + ', файлов: ' + (data.copies || 0), 'success');
+        loadDuplicates(1);
+    }).catch(function (err) {
+        toast(err.message, 'error');
+    }).finally(function () { btn.disabled = false; });
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadDuplicates(1);
+});
+</script>
+{% endblock %}
