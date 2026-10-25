@@ -1,0 +1,44 @@
+# Виртуальное окружение
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Секреты и конфиденциальные данные
+passwords.json
+ses_e95b395abffd0N29eD4IGh27NE.json
+ses_*.json
+*.pem
+*.key
+.env
+
+# Временные файлы и бэкапы
+temp/
+cache/
+backup_*/
+backups/
+*.bak
+*.tmp
+
+# Логи
+*.log
+logs/
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
